@@ -14,9 +14,21 @@ class AgaInAppUpdater {
       AppUpdateInfo updateInfo = await InAppUpdate.checkForUpdate();
       if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
         if (updateInfo.immediateUpdateAllowed) {
-          await InAppUpdate.completeFlexibleUpdate();
+          await InAppUpdate.performImmediateUpdate();
+          return;
         }
 
+        _classicDialog.setTitle("Update Required");
+        _classicDialog.setMessage(
+          "A new version is available. Please update the app from Google Play to continue.",
+        );
+        _classicDialog.setCancelable(false);
+        _classicDialog.setPositiveMessage("Close");
+        if (context.mounted) {
+          _classicDialog.showOnButtonDialog(context, () {
+            _classicDialog.dismissDialog();
+          });
+        }
       }
     } catch (e) {
       if(kDebugMode || userAccount == "rizzabhb24024@gmail.com"){

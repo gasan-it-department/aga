@@ -32,50 +32,78 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
   final List<Map<String, dynamic>> _emergencyContacts = [
     {
       "title": "GASAN DRRM",
-      "number": "0909-109-992",
-      "icon": Image.asset(ImageDirectory().getGasanLogo(), width: 30, height: 30,),
+      "number": "09171804700",
+      "icon": Image.asset(
+        ImageDirectory().getGasanLogo(),
+        width: 30,
+        height: 30,
+      ),
       "color": const Color(0xFFDC2626),
       "bgColor": const Color(0xFFFEF2F2),
     },
     {
       "title": "SANTA CRUZ DRRM",
-      "number": "0951-733-3357",
-      "icon": Image.asset(ImageDirectory().getSantaCruzLogo(), width: 30, height: 30,),
+      "number": "0920-455-4034",
+      "icon": Image.asset(
+        ImageDirectory().getSantaCruzLogo(),
+        width: 30,
+        height: 30,
+      ),
       "color": const Color(0xFFDC2626),
       "bgColor": const Color(0xFFFEF2F2),
     },
     {
       "title": "BUENAVISTA DRRM",
       "number": "0947-761-3187",
-      "icon": Image.asset(ImageDirectory().getBuenavistaLogo(), width: 30, height: 30),
+      "icon": Image.asset(
+        ImageDirectory().getBuenavistaLogo(),
+        width: 30,
+        height: 30,
+      ),
       "color": const Color(0xFFDC2626),
       "bgColor": const Color(0xFFFEF2F2),
     },
     {
       "title": "TORRIJOS DRRM",
       "number": "0967-306-7372",
-      "icon": Image.asset(ImageDirectory().getTorrijosLogo(), width: 30, height: 30),
+      "icon": Image.asset(
+        ImageDirectory().getTorrijosLogo(),
+        width: 30,
+        height: 30,
+      ),
       "color": const Color(0xFFDC2626),
       "bgColor": const Color(0xFFFEF2F2),
     },
     {
       "title": "BOAC DRRM",
       "number": "0960-585-8800",
-      "icon": Image.asset(ImageDirectory().getBoacLogo(), width: 30, height: 30),
+      "icon": Image.asset(
+        ImageDirectory().getBoacLogo(),
+        width: 30,
+        height: 30,
+      ),
       "color": const Color(0xFFDC2626),
       "bgColor": const Color(0xFFFEF2F2),
     },
     {
       "title": "MOGPOG DRRM",
-      "number": "0917-813-7880",
-      "icon": Image.asset(ImageDirectory().getMogpogLogo(), width: 30, height: 30),
+      "number": "0917-164-3068",
+      "icon": Image.asset(
+        ImageDirectory().getMogpogLogo(),
+        width: 30,
+        height: 30,
+      ),
       "color": const Color(0xFFDC2626),
       "bgColor": const Color(0xFFFEF2F2),
     },
     {
-      "title": "MARINDUQUE PROV. DRRM",
+      "title": "MARINDUQUE PDRRMO",
       "number": "0968-226-5727",
-      "icon": Image.asset(ImageDirectory().getBuenavistaLogo(), width: 30, height: 30),
+      "icon": Image.asset(
+        ImageDirectory().getBuenavistaLogo(),
+        width: 30,
+        height: 30,
+      ),
       "color": const Color(0xFFDC2626),
       "bgColor": const Color(0xFFFEF2F2),
     },
@@ -119,26 +147,43 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       if (await canLaunchUrl(launchUri)) {
         await launchUrl(launchUri);
       } else {
-        final bool launched = await launchUrl(launchUri, mode: LaunchMode.externalApplication);
+        final bool launched = await launchUrl(
+          launchUri,
+          mode: LaunchMode.externalApplication,
+        );
         if (!launched && mounted) {
-          SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Cannot launch phone dialer.");
+          SnackbarMessenger().showSnackbar(
+            context,
+            SnackbarMessenger.failed,
+            "Cannot launch phone dialer.",
+          );
         }
       }
     } catch (e) {
-      if (mounted) SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Error making call: $e");
+      if (mounted)
+        SnackbarMessenger().showSnackbar(
+          context,
+          SnackbarMessenger.failed,
+          "Error making call: $e",
+        );
     }
   }
 
   Future<void> _handleEmergencyText(String phoneNumber) async {
     setState(() => _isFetchingLocation = true);
-    String finalMessage = "AGA EMERGENCY:\n"
+    String finalMessage =
+        "AGA EMERGENCY:\n"
         "I NEED IMMEDIATE HELP!\n"
         "Please send rescue to my location.";
     Position? positionToUse = _cachedPosition;
 
     if (positionToUse == null) {
       if (mounted) {
-        SnackbarMessenger().showSnackbar(context, SnackbarMessenger.neutral, "Securing live location...");
+        SnackbarMessenger().showSnackbar(
+          context,
+          SnackbarMessenger.neutral,
+          "Securing live location...",
+        );
       }
       try {
         bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -147,7 +192,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
         LocationPermission permission = await Geolocator.checkPermission();
         if (permission == LocationPermission.denied) {
           permission = await Geolocator.requestPermission();
-          if (permission == LocationPermission.denied) throw Exception("Location permission denied.");
+          if (permission == LocationPermission.denied)
+            throw Exception("Location permission denied.");
         }
         if (permission == LocationPermission.deniedForever) {
           throw Exception("Location permissions permanently denied.");
@@ -164,7 +210,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
     }
 
     if (positionToUse != null) {
-      finalMessage += "\n\nMy Exact Location: http://maps.google.com/maps?q=${positionToUse.latitude},${positionToUse.longitude}";
+      finalMessage +=
+          "\n\nMy Exact Location: http://maps.google.com/maps?q=${positionToUse.latitude},${positionToUse.longitude}";
     }
 
     setState(() => _isFetchingLocation = false);
@@ -189,13 +236,25 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       if (await canLaunchUrl(launchUri)) {
         await launchUrl(launchUri);
       } else {
-        final bool launched = await launchUrl(launchUri, mode: LaunchMode.externalApplication);
+        final bool launched = await launchUrl(
+          launchUri,
+          mode: LaunchMode.externalApplication,
+        );
         if (!launched && mounted) {
-          SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Cannot open messaging app.");
+          SnackbarMessenger().showSnackbar(
+            context,
+            SnackbarMessenger.failed,
+            "Cannot open messaging app.",
+          );
         }
       }
     } catch (e) {
-      if (mounted) SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Error sending message: $e");
+      if (mounted)
+        SnackbarMessenger().showSnackbar(
+          context,
+          SnackbarMessenger.failed,
+          "Error sending message: $e",
+        );
     }
   }
 
@@ -210,7 +269,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
         centerTitle: false,
         title: const Text(
           "Emergency Hotlines",
-          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.5, fontSize: 20),
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.5,
+            fontSize: 20,
+          ),
         ),
       ),
 
@@ -245,7 +308,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     ),
                   ),
 
-                  ..._emergencyContacts.map((contact) => _buildEmergencyCard(contact)),
+                  ..._emergencyContacts.map(
+                    (contact) => _buildEmergencyCard(contact),
+                  ),
                   const SizedBox(height: 40),
                 ],
               ),
@@ -271,7 +336,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             color: const Color(0xFFDC2626).withValues(alpha: 0.4),
             blurRadius: 24,
             offset: const Offset(0, 12),
-          )
+          ),
         ],
         border: Border.all(
           color: Colors.white.withValues(alpha: 0.2),
@@ -297,7 +362,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(8),
@@ -306,13 +374,17 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                         color: Colors.black.withValues(alpha: 0.1),
                         blurRadius: 4,
                         offset: const Offset(0, 2),
-                      )
+                      ),
                     ],
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.sensors_rounded, color: Color(0xFFDC2626), size: 16),
+                      Icon(
+                        Icons.sensors_rounded,
+                        color: Color(0xFFDC2626),
+                        size: 16,
+                      ),
                       SizedBox(width: 6),
                       Text(
                         "SOS ALERT",
@@ -343,10 +415,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                   padding: const EdgeInsets.only(left: 14),
                   decoration: const BoxDecoration(
                     border: Border(
-                      left: BorderSide(
-                        color: Color(0xFFFBBF24),
-                        width: 4,
-                      ),
+                      left: BorderSide(color: Color(0xFFFBBF24), width: 4),
                     ),
                   ),
                   child: Text(
@@ -379,7 +448,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             color: primaryColor.withValues(alpha: 0.04),
             blurRadius: 16,
             offset: const Offset(0, 8),
-          )
+          ),
         ],
       ),
       child: Material(
@@ -401,7 +470,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     color: primaryColor.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Icon(Icons.assignment_late_rounded, color: primaryColor, size: 28),
+                  child: Icon(
+                    Icons.assignment_late_rounded,
+                    color: primaryColor,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -437,7 +510,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     color: Color(0xFFF1F5F9),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.arrow_forward_ios_rounded, color: primaryColor.withValues(alpha: 0.6), size: 14),
+                  child: Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    color: primaryColor.withValues(alpha: 0.6),
+                    size: 14,
+                  ),
                 ),
               ],
             ),
@@ -455,7 +532,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
           color: Colors.white,
           border: Border.all(color: const Color(0xFFE2E8F0)),
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Column(
           children: [
@@ -466,7 +549,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                   Container(
                     height: 56,
                     width: 56,
-                    decoration: BoxDecoration(color: data['bgColor'], shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: data['bgColor'],
+                      shape: BoxShape.circle,
+                    ),
                     child: Center(child: data["icon"] as Image),
                   ),
                   const SizedBox(width: 16),
@@ -480,7 +566,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                             Expanded(
                               child: Text(
                                 data['title'],
-                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textPrimary),
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: textPrimary,
+                                ),
                               ),
                             ),
 
@@ -491,7 +581,9 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                               children: [
                                 // Download QR Button
                                 Material(
-                                  color: const Color(0xFF3B82F6).withValues(alpha: 0.1),
+                                  color: const Color(
+                                    0xFF3B82F6,
+                                  ).withValues(alpha: 0.1),
                                   shape: const CircleBorder(),
                                   child: InkWell(
                                     customBorder: const CircleBorder(),
@@ -501,38 +593,41 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                       if (kIsWeb) {
                                         hasAccess = true;
                                       } else if (Platform.isAndroid) {
-                                        bool isStorageGranted = await Permission.storage.isGranted;
-                                        bool isPhotosGranted = await Permission.photos.isGranted;
-
-                                        if (!isStorageGranted && !isPhotosGranted) {
-                                          Map<Permission, PermissionStatus> statuses = await [
-                                            Permission.storage,
-                                            Permission.photos,
-                                          ].request();
-
-                                          isStorageGranted = statuses[Permission.storage]?.isGranted ?? false;
-                                          isPhotosGranted = statuses[Permission.photos]?.isGranted ?? false;
-                                        }
-
-                                        hasAccess = isStorageGranted || isPhotosGranted;
-
+                                        hasAccess = true;
                                       } else if (Platform.isIOS) {
-                                        bool isPhotosGranted = await Permission.photos.isGranted || await Permission.photos.isLimited;
+                                        bool isPhotosGranted =
+                                            await Permission.photos.isGranted ||
+                                            await Permission.photos.isLimited;
 
                                         if (!isPhotosGranted) {
-                                          PermissionStatus status = await Permission.photos.request();
-                                          isPhotosGranted = status.isGranted || status.isLimited;
+                                          PermissionStatus status =
+                                              await Permission.photos.request();
+                                          isPhotosGranted =
+                                              status.isGranted ||
+                                              status.isLimited;
                                         }
                                         hasAccess = isPhotosGranted;
                                       }
 
                                       if (!hasAccess) {
                                         if (mounted) {
-                                          if (await Permission.storage.isPermanentlyDenied || await Permission.photos.isPermanentlyDenied) {
-                                            if(mounted) SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Permission permanently denied. Please enable in Settings.");
+                                          if (await Permission
+                                              .photos
+                                              .isPermanentlyDenied) {
+                                            if (mounted)
+                                              SnackbarMessenger().showSnackbar(
+                                                context,
+                                                SnackbarMessenger.failed,
+                                                "Permission permanently denied. Please enable in Settings.",
+                                              );
                                             await openAppSettings();
                                           } else {
-                                            if(mounted) SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Storage permission is required to save the QR code.");
+                                            if (mounted)
+                                              SnackbarMessenger().showSnackbar(
+                                                context,
+                                                SnackbarMessenger.failed,
+                                                "Storage permission is required to save the QR code.",
+                                              );
                                           }
                                         }
                                         return;
@@ -548,7 +643,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                     },
                                     child: const Padding(
                                       padding: EdgeInsets.all(6.0),
-                                      child: Icon(Icons.download_rounded, size: 18, color: Color(0xFF3B82F6)),
+                                      child: Icon(
+                                        Icons.download_rounded,
+                                        size: 18,
+                                        color: Color(0xFF3B82F6),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -562,9 +661,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                   child: InkWell(
                                     customBorder: const CircleBorder(),
                                     onTap: () {
-                                      String qrMessage = "AGA EMERGENCY:\nI NEED IMMEDIATE HELP!\nPlease send rescue to my location.";
+                                      String qrMessage =
+                                          "AGA EMERGENCY:\nI NEED IMMEDIATE HELP!\nPlease send rescue to my location.";
                                       if (_cachedPosition != null) {
-                                        qrMessage += "\n\nMy Exact Location: http://maps.google.com/maps?q=${_cachedPosition!.latitude},${_cachedPosition!.longitude}";
+                                        qrMessage +=
+                                            "\n\nMy Exact Location: http://maps.google.com/maps?q=${_cachedPosition!.latitude},${_cachedPosition!.longitude}";
                                       }
 
                                       EmergencyQRDialog.show(
@@ -576,7 +677,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                                     },
                                     child: Padding(
                                       padding: const EdgeInsets.all(6.0),
-                                      child: Icon(Icons.qr_code_2_rounded, size: 18, color: data['color']),
+                                      child: Icon(
+                                        Icons.qr_code_2_rounded,
+                                        size: 18,
+                                        color: data['color'],
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -588,8 +693,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                         const SizedBox(height: 4),
 
                         Text(
-                            data['number'],
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: data['color'], letterSpacing: 0.5)
+                          data['number'],
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            color: data['color'],
+                            letterSpacing: 0.5,
+                          ),
                         ),
                       ],
                     ),
@@ -601,7 +711,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
             Container(
               decoration: const BoxDecoration(
                 color: Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.only(bottomLeft: Radius.circular(20), bottomRight: Radius.circular(20)),
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(20),
+                  bottomRight: Radius.circular(20),
+                ),
                 border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
               ),
               child: Row(
@@ -611,31 +724,61 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         foregroundColor: data['color'],
-                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.only(bottomLeft: Radius.circular(20))),
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.only(
+                            bottomLeft: Radius.circular(20),
+                          ),
+                        ),
                       ),
-                      onPressed: _isFetchingLocation ? null : () => _handleEmergencyText(data['number']),
+                      onPressed: _isFetchingLocation
+                          ? null
+                          : () => _handleEmergencyText(data['number']),
                       icon: _isFetchingLocation
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
                           : const Icon(Icons.message, size: 18),
-                      label: Text(_isFetchingLocation ? "LOCATING..." : "TEXT", style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                      label: Text(
+                        _isFetchingLocation ? "LOCATING..." : "TEXT",
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                   ),
-                  Container(width: 1, height: 30, color: const Color(0xFFE2E8F0)),
+                  Container(
+                    width: 1,
+                    height: 30,
+                    color: const Color(0xFFE2E8F0),
+                  ),
                   Expanded(
                     child: TextButton.icon(
                       style: TextButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         foregroundColor: data['color'],
-                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.only(bottomRight: Radius.circular(20))),
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.only(
+                            bottomRight: Radius.circular(20),
+                          ),
+                        ),
                       ),
                       onPressed: () => _makePhoneCall(data['number']),
                       icon: const Icon(Icons.call_rounded, size: 18),
-                      label: const Text("CALL", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                      label: const Text(
+                        "CALL",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
-            )
+            ),
           ],
         ),
       ),

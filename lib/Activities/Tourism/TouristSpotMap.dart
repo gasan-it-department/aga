@@ -4,22 +4,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:gasan_port_tracker/Activities/Tourism/TouristSpotDetails.dart';
+import 'package:gasan_port_tracker/Activities/ViewShop.dart';
 import 'package:latlong2/latlong.dart' hide Path;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class TouristSpotMap extends StatefulWidget {
   final int? municipalZipCode;
 
-  const TouristSpotMap({
-    super.key,
-    this.municipalZipCode,
-  });
+  const TouristSpotMap({super.key, this.municipalZipCode});
 
   @override
   State<TouristSpotMap> createState() => _TouristSpotMapState();
 }
 
-class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStateMixin {
+class _TouristSpotMapState extends State<TouristSpotMap>
+    with TickerProviderStateMixin {
   final _supabase = Supabase.instance.client;
   final MapController _mapController = MapController();
 
@@ -31,7 +30,9 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
   bool _isLoading = true;
 
   List<Map<String, dynamic>> _touristSpots = [];
+  List<Map<String, dynamic>> _foodShops = [];
   String? _selectedSpotLabel;
+  String _selectedFilter = 'All';
 
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -60,8 +61,13 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
 
   List<Map<String, dynamic>> get _filteredSpots {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return _touristSpots;
-    return _touristSpots.where((s) {
+    final destinations = _selectedFilter == 'Tourist Spots'
+        ? _touristSpots
+        : _selectedFilter == 'Food & Drinks'
+        ? _foodShops
+        : [..._touristSpots, ..._foodShops];
+    if (q.isEmpty) return destinations;
+    return destinations.where((s) {
       final label = (s['spot_label'] ?? '').toString().toLowerCase();
       final desc = (s['spot_description'] ?? '').toString().toLowerCase();
       return label.contains(q) || desc.contains(q);
@@ -92,12 +98,17 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
-    final curved = CurvedAnimation(parent: controller, curve: Curves.easeInOutCubic);
+    final curved = CurvedAnimation(
+      parent: controller,
+      curve: Curves.easeInOutCubic,
+    );
 
     void tick() {
       final t = curved.value;
-      final lat = startCenter.latitude + (dest.latitude - startCenter.latitude) * t;
-      final lng = startCenter.longitude + (dest.longitude - startCenter.longitude) * t;
+      final lat =
+          startCenter.latitude + (dest.latitude - startCenter.latitude) * t;
+      final lng =
+          startCenter.longitude + (dest.longitude - startCenter.longitude) * t;
       final z = startZoom + (destZoom - startZoom) * t;
       _mapController.move(LatLng(lat, lng), z);
     }
@@ -133,9 +144,7 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
 
   Future<void> _fetchTourismSpots() async {
     try {
-      var query = _supabase
-          .from('tourist_spots')
-          .select();
+      var query = _supabase.from('tourist_spots').select();
 
       final zipCode = widget.municipalZipCode;
       if (zipCode != null && zipCode != 0) {
@@ -143,14 +152,53 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
       }
 
       final response = await query;
+      final itemRows = await _supabase
+          .from('store_items')
+          .select('item_type, item_category, sellers!inner(*)')
+          .eq('item_available', true)
+          .eq('sellers.seller_store_status', 'visible');
+      final shopsById = <String, Map<String, dynamic>>{};
+      for (final row in List<Map<String, dynamic>>.from(itemRows)) {
+        final type = '${row['item_type'] ?? ''}'.toLowerCase();
+        final category = '${row['item_category'] ?? ''}'.toLowerCase();
+        final isFood =
+            type == 'food' ||
+            category.contains('meal') ||
+            category.contains('coffee') ||
+            category.contains('milk tea') ||
+            category.contains('restaurant');
+        final seller = row['sellers'];
+        if (!isFood || seller is! Map) continue;
+        final shop = Map<String, dynamic>.from(seller);
+        final address = shop['seller_store_address'];
+        if (zipCode != null &&
+            zipCode != 0 &&
+            address is Map &&
+            num.tryParse('${address['zip_code'] ?? ''}') != zipCode) {
+          continue;
+        }
+        final id = '${shop['seller_id'] ?? ''}';
+        if (id.isEmpty || shop['seller_store_coordinates'] == null) continue;
+        shopsById[id] = {
+          'spot_label': shop['seller_store_name'] ?? 'Food & Drink Shop',
+          'spot_description': 'Food & Drinks',
+          'spot_coordinates': shop['seller_store_coordinates'],
+          'spot_images': [if (shop['seller_logo'] != null) shop['seller_logo']],
+          '_kind': 'food',
+          '_seller': shop,
+        };
+      }
 
       if (mounted) {
         setState(() {
           _touristSpots = List<Map<String, dynamic>>.from(response);
+          _foodShops = shopsById.values.toList();
           _isLoading = false;
 
           if (_touristSpots.isNotEmpty) {
-            final firstCoords = _parseCoordinates(_touristSpots.first['spot_coordinates']);
+            final firstCoords = _parseCoordinates(
+              _touristSpots.first['spot_coordinates'],
+            );
             if (firstCoords != null) {
               _mapCenter = firstCoords;
               _mapController.move(_mapCenter, 14.0);
@@ -167,7 +215,9 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
   LatLng? _parseCoordinates(dynamic jsonCoordinates) {
     if (jsonCoordinates == null) return null;
     try {
-      final map = jsonCoordinates is String ? jsonDecode(jsonCoordinates) : jsonCoordinates;
+      final map = jsonCoordinates is String
+          ? jsonDecode(jsonCoordinates)
+          : jsonCoordinates;
       return LatLng(
         double.parse(map['latitude'].toString()),
         double.parse(map['longitude'].toString()),
@@ -191,9 +241,26 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
 
   void _showSpotDetails(Map<String, dynamic> spot) {
     setState(() => _selectedSpotLabel = spot['spot_label']);
+    if (spot['_kind'] == 'food') {
+      final seller = Map<String, dynamic>.from(spot['_seller']);
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ViewShop(
+            sellerId: seller['seller_id'].toString(),
+            sellerData: seller,
+          ),
+        ),
+      ).then((_) {
+        if (mounted) setState(() => _selectedSpotLabel = null);
+      });
+      return;
+    }
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => TouristSpotDetails(spotData: spot)),
+      MaterialPageRoute(
+        builder: (context) => TouristSpotDetails(spotData: spot),
+      ),
     ).then((_) {
       if (mounted) setState(() => _selectedSpotLabel = null);
     });
@@ -203,8 +270,10 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Explore Destinations",
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+        title: const Text(
+          "Explore Destinations",
+          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
         backgroundColor: Colors.white,
         foregroundColor: primaryDark,
         elevation: 0,
@@ -230,7 +299,7 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
               TileLayer(
                 urlTemplate: _isSatellite
                     ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-                    : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    : 'https://cartodb-basemaps-a.global.ssl.fastly.net/light_nolabels/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.gasan.porttracker',
               ),
 
@@ -245,11 +314,12 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
                     spiderfyCircleRadius: 80,
                     spiderfySpiralDistanceMultiplier: 2,
                     circleSpiralSwitchover: 9,
-                    markers: _touristSpots
+                    markers: _filteredSpots
                         .map((spot) => _buildSpotMarker(spot))
                         .whereType<Marker>()
                         .toList(),
-                    builder: (context, markers) => _buildClusterBubble(markers.length),
+                    builder: (context, markers) =>
+                        _buildClusterBubble(markers.length),
                     onClusterTap: (cluster) {
                       final z = _mapController.camera.zoom + 2;
                       _animateMapTo(cluster.bounds.center, z.clamp(2.0, 18.0));
@@ -260,12 +330,7 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
           ),
 
           // Search Bar
-          Positioned(
-            top: 12,
-            left: 12,
-            right: 12,
-            child: _buildSearchBar(),
-          ),
+          Positioned(top: 12, left: 12, right: 12, child: _buildSearchBar()),
 
           // Action Buttons
           Positioned(
@@ -274,7 +339,9 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
             child: Column(
               children: [
                 _buildMapAction(
-                  icon: _isSatellite ? Icons.layers_outlined : Icons.layers_rounded,
+                  icon: _isSatellite
+                      ? Icons.layers_outlined
+                      : Icons.layers_rounded,
                   onTap: () => setState(() => _isSatellite = !_isSatellite),
                 ),
                 const SizedBox(height: 12),
@@ -291,7 +358,9 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
             Positioned.fill(
               child: Container(
                 color: Colors.white.withValues(alpha: 0.8),
-                child: Center(child: CircularProgressIndicator(color: primaryDark)),
+                child: Center(
+                  child: CircularProgressIndicator(color: primaryDark),
+                ),
               ),
             ),
         ],
@@ -313,7 +382,7 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
                 color: Colors.black.withValues(alpha: 0.12),
                 blurRadius: 12,
                 offset: const Offset(0, 4),
-              )
+              ),
             ],
           ),
           child: Row(
@@ -333,11 +402,15 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
                   }),
                   decoration: const InputDecoration(
                     isDense: true,
-                    hintText: "Search tourist spots...",
+                    hintText: "Search destinations...",
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.symmetric(vertical: 14),
                   ),
-                  style: TextStyle(fontSize: 14, color: primaryDark, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: primaryDark,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               if (_query.isNotEmpty)
@@ -355,6 +428,36 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
             ],
           ),
         ),
+        const SizedBox(height: 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: ['All', 'Tourist Spots', 'Food & Drinks'].map((filter) {
+              final selected = _selectedFilter == filter;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(filter),
+                  selected: selected,
+                  onSelected: (_) => setState(() => _selectedFilter = filter),
+                  selectedColor: primaryDark,
+                  backgroundColor: Colors.white,
+                  labelStyle: TextStyle(
+                    color: selected ? Colors.white : primaryDark,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                  ),
+                  side: BorderSide(
+                    color: selected ? primaryDark : Colors.grey.shade300,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
         if (_showDropdown)
           Container(
             margin: const EdgeInsets.only(top: 6),
@@ -367,22 +470,28 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
                   color: Colors.black.withValues(alpha: 0.12),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
-                )
+                ),
               ],
             ),
             child: results.isEmpty
                 ? Padding(
                     padding: const EdgeInsets.all(16),
                     child: Text(
-                      "No spots found",
-                      style: TextStyle(color: primaryDark.withValues(alpha: 0.6), fontWeight: FontWeight.w600),
+                      "No destinations found",
+                      style: TextStyle(
+                        color: primaryDark.withValues(alpha: 0.6),
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   )
                 : ListView.separated(
                     shrinkWrap: true,
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     itemCount: results.length,
-                    separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.withValues(alpha: 0.15)),
+                    separatorBuilder: (_, __) => Divider(
+                      height: 1,
+                      color: Colors.grey.withValues(alpha: 0.15),
+                    ),
                     itemBuilder: (context, i) {
                       final spot = results[i];
                       final label = (spot['spot_label'] ?? 'Spot').toString();
@@ -390,33 +499,51 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
                       return Material(
                         color: Colors.transparent,
                         child: InkWell(
-                        onTap: () => _selectSpotFromSearch(spot),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 34, height: 34,
-                                decoration: BoxDecoration(
-                                  color: style['color'].withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(8),
+                          onTap: () => _selectSpotFromSearch(spot),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    color: style['color'].withValues(
+                                      alpha: 0.12,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    style['icon'],
+                                    color: style['color'],
+                                    size: 18,
+                                  ),
                                 ),
-                                child: Icon(style['icon'], color: style['color'], size: 18),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  label,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(fontWeight: FontWeight.w700, color: primaryDark, fontSize: 13.5),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    label,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: primaryDark,
+                                      fontSize: 13.5,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              Icon(Icons.north_east_rounded, size: 16, color: primaryDark.withValues(alpha: 0.4)),
-                            ],
+                                Icon(
+                                  Icons.north_east_rounded,
+                                  size: 16,
+                                  color: primaryDark.withValues(alpha: 0.4),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
                       );
                     },
                   ),
@@ -443,7 +570,12 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
     }
 
     final bool isSelected = _selectedSpotLabel == spotLabel;
-    final style = _getSpotStyling(spotLabel);
+    final IconData markerIcon = spot['_kind'] == 'food'
+        ? Icons.restaurant_rounded
+        : Icons.travel_explore_rounded;
+    final Color markerColor = spot['_kind'] == 'food'
+        ? const Color(0xFFEA580C)
+        : gasanEmerald;
 
     return Marker(
       point: coords,
@@ -461,45 +593,84 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                    color: isSelected ? style['color'] : Colors.white,
-                    width: isSelected ? 3 : 1.5),
+                  color: isSelected ? markerColor : Colors.white,
+                  width: isSelected ? 3 : 1.5,
+                ),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6))
+                    color: Colors.black.withValues(alpha: 0.2),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
                 ],
               ),
               child: Column(
                 children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
-                    child: (firstImageUrl != null && firstImageUrl.isNotEmpty)
-                        ? Image.network(
-                            firstImageUrl,
-                            height: 50,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorBuilder: (c, e, s) => _buildPlaceholder(style),
-                          )
-                        : _buildPlaceholder(style),
+                  Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(10),
+                        ),
+                        child: firstImageUrl != null && firstImageUrl.isNotEmpty
+                            ? Image.network(
+                                firstImageUrl,
+                                height: 50,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => _buildPlaceholder(
+                                  {'icon': markerIcon, 'color': markerColor},
+                                ),
+                              )
+                            : _buildPlaceholder({
+                                'icon': markerIcon,
+                                'color': markerColor,
+                              }),
+                      ),
+                      Positioned(
+                        top: 5,
+                        right: 5,
+                        child: Container(
+                          width: 25,
+                          height: 25,
+                          decoration: BoxDecoration(
+                            color: markerColor,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: Icon(
+                            markerIcon,
+                            color: Colors.white,
+                            size: 13,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 6,
+                      horizontal: 4,
+                    ),
                     child: Text(
                       spotLabel.toUpperCase(),
                       textAlign: TextAlign.center,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          fontSize: 9, fontWeight: FontWeight.w900, color: primaryDark),
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        color: primaryDark,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
             CustomPaint(
-              painter: TrianglePainter(color: isSelected ? style['color'] : Colors.white),
+              painter: TrianglePainter(
+                color: isSelected ? markerColor : Colors.white,
+              ),
               child: const SizedBox(width: 20, height: 12),
             ),
           ],
@@ -518,14 +689,22 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
         ),
         shape: BoxShape.circle,
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 8, offset: const Offset(0, 4)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
         ],
         border: Border.all(color: Colors.white, width: 2.5),
       ),
       alignment: Alignment.center,
       child: Text(
         "$count",
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15),
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+          fontSize: 15,
+        ),
       ),
     );
   }
@@ -534,18 +713,31 @@ class _TouristSpotMapState extends State<TouristSpotMap> with TickerProviderStat
     return Container(
       height: 50,
       color: style['color'].withValues(alpha: 0.1),
-      child: Center(child: Icon(style['icon'], color: style['color'], size: 22)),
+      child: Center(
+        child: Icon(style['icon'], color: style['color'], size: 22),
+      ),
     );
   }
 
-  Widget _buildMapAction({required IconData icon, required VoidCallback onTap, Color? iconColor}) {
+  Widget _buildMapAction({
+    required IconData icon,
+    required VoidCallback onTap,
+    Color? iconColor,
+  }) {
     return Container(
-      height: 50, width: 50,
+      height: 50,
+      width: 50,
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 10, offset: const Offset(0, 4))]
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: IconButton(
         icon: Icon(icon, color: iconColor ?? primaryDark, size: 24),
@@ -574,4 +766,3 @@ class TrianglePainter extends CustomPainter {
   @override
   bool shouldRepaint(CustomPainter oldDelegate) => false;
 }
-

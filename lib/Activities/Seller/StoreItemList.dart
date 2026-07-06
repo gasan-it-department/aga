@@ -42,7 +42,13 @@ class _StoreItemListState extends State<StoreItemList> {
   String _selectedFilter = 'All';
 
   final List<String> _filterOptions = [
-    "All", "Food", "Service", "Material", "Apparel", "Electronics", "Other"
+    "All",
+    "Food",
+    "Service",
+    "Material",
+    "Apparel",
+    "Electronics",
+    "Other",
   ];
 
   @override
@@ -87,19 +93,26 @@ class _StoreItemListState extends State<StoreItemList> {
         final vars = m['item_variations'];
         if (vars is List && vars.isNotEmpty) {
           for (final v in vars) {
-            if (v is Map && (num.tryParse(v['stock']?.toString() ?? '0') ?? 0) > 0) return false;
+            if (v is Map &&
+                (num.tryParse(v['stock']?.toString() ?? '0') ?? 0) > 0)
+              return false;
           }
           return true;
         }
         final raw = m['item_stocks'];
-        final s = raw is int ? raw : (int.tryParse(raw?.toString() ?? '0') ?? 0);
+        final s = raw is int
+            ? raw
+            : (int.tryParse(raw?.toString() ?? '0') ?? 0);
         return s <= 0;
       }
+
       list.sort((a, b) {
         final ao = outOfStock(a) ? 1 : 0;
         final bo = outOfStock(b) ? 1 : 0;
         if (ao != bo) return ao.compareTo(bo);
-        return (b['item_id']?.toString() ?? '').compareTo(a['item_id']?.toString() ?? '');
+        return (b['item_id']?.toString() ?? '').compareTo(
+          a['item_id']?.toString() ?? '',
+        );
       });
 
       if (mounted) {
@@ -136,7 +149,11 @@ class _StoreItemListState extends State<StoreItemList> {
     }
   }
 
-  Future<void> _toggleAvailability(int index, String itemId, bool currentStatus) async {
+  Future<void> _toggleAvailability(
+    int index,
+    String itemId,
+    bool currentStatus,
+  ) async {
     // Optimistic update
     setState(() => _items[index]['item_available'] = !currentStatus);
 
@@ -166,7 +183,10 @@ class _StoreItemListState extends State<StoreItemList> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
+        content: Text(
+          message,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         backgroundColor: isError ? dangerColor : successColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -177,16 +197,22 @@ class _StoreItemListState extends State<StoreItemList> {
   void _deleteItemConfirm(String itemId) {
     final dialog = ClassicDialog();
     dialog.setTitle("Delete Item?");
-    dialog.setMessage("Are you sure you want to remove this item? This action cannot be undone.");
+    dialog.setMessage(
+      "Are you sure you want to remove this item? This action cannot be undone.",
+    );
     dialog.setPositiveMessage("Delete");
     dialog.setNegativeMessage("Cancel");
     dialog.setCancelable(false);
-    dialog.showTwoButtonDialog(context, (_) {
-      dialog.dismissDialog();
-    }, (_) {
-      dialog.dismissDialog();
-      _deleteItem(itemId);
-    });
+    dialog.showTwoButtonDialog(
+      context,
+      (_) {
+        dialog.dismissDialog();
+      },
+      (_) {
+        dialog.dismissDialog();
+        _deleteItem(itemId);
+      },
+    );
   }
 
   // --- UI COMPONENTS ---
@@ -204,7 +230,11 @@ class _StoreItemListState extends State<StoreItemList> {
         titleSpacing: 20,
         title: const Text(
           "My Products",
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, letterSpacing: -0.3),
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            letterSpacing: -0.3,
+          ),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -217,15 +247,29 @@ class _StoreItemListState extends State<StoreItemList> {
               onPressed: () async {
                 await Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => AddEditStoreItem(sellerId: widget.sellerId)),
+                  MaterialPageRoute(
+                    builder: (_) => AddEditStoreItem(sellerId: widget.sellerId),
+                  ),
                 );
                 _fetchItems();
               },
-              icon: Icon(Icons.add_circle_outline_rounded, color: primaryBlue, size: 20),
-              label: Text("Add New", style: TextStyle(color: primaryBlue, fontWeight: FontWeight.w700)),
+              icon: Icon(
+                Icons.add_circle_outline_rounded,
+                color: primaryBlue,
+                size: 20,
+              ),
+              label: Text(
+                "Add New",
+                style: TextStyle(
+                  color: primaryBlue,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ),
           ),
@@ -244,12 +288,12 @@ class _StoreItemListState extends State<StoreItemList> {
                   : _items.isEmpty
                   ? _buildEmptyState()
                   : Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1200),
-                  child: _buildShopeeStyleGrid(),
-                ),
-              ),
+                      alignment: Alignment.topCenter,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1200),
+                        child: _buildShopeeStyleGrid(),
+                      ),
+                    ),
             ),
           ),
         ],
@@ -269,25 +313,49 @@ class _StoreItemListState extends State<StoreItemList> {
             child: TextField(
               controller: _searchController,
               onChanged: _onSearchChanged,
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: primaryDark),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: primaryDark,
+              ),
               decoration: InputDecoration(
                 hintText: "Search your products...",
-                hintStyle: TextStyle(color: textSecondary.withValues(alpha: 0.7), fontWeight: FontWeight.w500),
-                prefixIcon: Icon(Icons.search_rounded, color: textSecondary, size: 20),
+                hintStyle: TextStyle(
+                  color: textSecondary.withValues(alpha: 0.7),
+                  fontWeight: FontWeight.w500,
+                ),
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  color: textSecondary,
+                  size: 20,
+                ),
                 suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
-                  icon: Icon(Icons.close_rounded, color: textSecondary, size: 18),
-                  onPressed: () {
-                    _searchController.clear();
-                    _onSearchChanged('');
-                  },
-                )
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: textSecondary,
+                          size: 18,
+                        ),
+                        onPressed: () {
+                          _searchController.clear();
+                          _onSearchChanged('');
+                        },
+                      )
                     : null,
                 filled: true,
                 fillColor: bgColor,
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 0,
+                  horizontal: 16,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: primaryBlue, width: 1.5),
+                ),
               ),
             ),
           ),
@@ -319,7 +387,9 @@ class _StoreItemListState extends State<StoreItemList> {
                     showCheckmark: false,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
-                      side: BorderSide(color: isSelected ? primaryBlue : cardBorder),
+                      side: BorderSide(
+                        color: isSelected ? primaryBlue : cardBorder,
+                      ),
                     ),
                   ),
                 );
@@ -333,53 +403,72 @@ class _StoreItemListState extends State<StoreItemList> {
   }
 
   Widget _buildEmptyState() {
-    final bool isFiltering = _searchQuery.isNotEmpty || _selectedFilter != 'All';
+    final bool isFiltering =
+        _searchQuery.isNotEmpty || _selectedFilter != 'All';
 
     return LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(28),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [BoxShadow(color: primaryDark.withValues(alpha: 0.04), blurRadius: 20, offset: const Offset(0, 10))],
-                        ),
-                        child: Icon(
-                            isFiltering ? Icons.search_off_rounded : Icons.add_business_rounded,
-                            size: 72,
-                            color: primaryBlue.withValues(alpha: 0.7)
-                        ),
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(28),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: primaryDark.withValues(alpha: 0.04),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 24),
-                      Text(
-                        isFiltering ? "No results found" : "No products yet",
-                        style: TextStyle(color: primaryDark, fontWeight: FontWeight.w800, fontSize: 18),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
+                      child: Icon(
                         isFiltering
-                            ? "Try adjusting your search or filters."
-                            : "Add products to start selling to your customers.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: textSecondary, fontSize: 14, height: 1.4),
+                            ? Icons.search_off_rounded
+                            : Icons.add_business_rounded,
+                        size: 72,
+                        color: primaryBlue.withValues(alpha: 0.7),
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      isFiltering ? "No results found" : "No products yet",
+                      style: TextStyle(
+                        color: primaryDark,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      isFiltering
+                          ? "Try adjusting your search or filters."
+                          : "Add products to start selling to your customers.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: textSecondary,
+                        fontSize: 14,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          );
-        }
+          ),
+        );
+      },
     );
   }
 
@@ -387,18 +476,25 @@ class _StoreItemListState extends State<StoreItemList> {
     final double width = MediaQuery.of(context).size.width;
     final int crossAxis = (width / 220).floor().clamp(2, 6);
     return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
       padding: const EdgeInsets.all(12),
       child: MasonryGrid(
         crossAxisCount: crossAxis,
         spacing: 8,
-        children: [for (int i = 0; i < _items.length; i++) _buildProductCard(_items[i], i)],
+        children: [
+          for (int i = 0; i < _items.length; i++)
+            _buildProductCard(_items[i], i),
+        ],
       ),
     );
   }
 
   Widget _buildProductCard(Map<String, dynamic> item, int index) {
-    final List<String> images = StoreItemDetailsBottomSheet.parseImages(item['item_images']);
+    final List<String> images = StoreItemDetailsBottomSheet.parseImages(
+      item['item_images'],
+    );
     final String? firstImage = images.isNotEmpty ? images.first : null;
 
     final bool isAvailable = item['item_available'] ?? false;
@@ -420,7 +516,7 @@ class _StoreItemListState extends State<StoreItemList> {
             color: primaryDark.withValues(alpha: 0.02),
             blurRadius: 4,
             offset: const Offset(0, 2),
-          )
+          ),
         ],
       ),
       child: Material(
@@ -434,7 +530,12 @@ class _StoreItemListState extends State<StoreItemList> {
             onEdit: () async {
               await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => AddEditStoreItem(sellerId: widget.sellerId, existingItem: item)),
+                MaterialPageRoute(
+                  builder: (_) => AddEditStoreItem(
+                    sellerId: widget.sellerId,
+                    existingItem: item,
+                  ),
+                ),
               );
               _fetchItems();
             },
@@ -453,7 +554,11 @@ class _StoreItemListState extends State<StoreItemList> {
                       color: bgColor,
                       child: firstImage != null
                           ? StoreItemDetailsBottomSheet.buildImage(firstImage)
-                          : Icon(Icons.image_outlined, color: textSecondary.withValues(alpha: 0.3), size: 40),
+                          : Icon(
+                              Icons.image_outlined,
+                              color: textSecondary.withValues(alpha: 0.3),
+                              size: 40,
+                            ),
                     ),
 
                     // Top Left Tag Overlay (Shopee Style)
@@ -461,14 +566,24 @@ class _StoreItemListState extends State<StoreItemList> {
                       top: 0,
                       left: 0,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: primaryBlue,
-                          borderRadius: const BorderRadius.only(bottomRight: Radius.circular(8)),
+                          borderRadius: const BorderRadius.only(
+                            bottomRight: Radius.circular(8),
+                          ),
                         ),
                         child: Text(
                           type,
-                          style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5,
+                          ),
                         ),
                       ),
                     ),
@@ -479,14 +594,21 @@ class _StoreItemListState extends State<StoreItemList> {
                         color: Colors.black.withValues(alpha: 0.5),
                         child: Center(
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black87,
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: const Text(
                               "SOLD OUT",
-                              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
@@ -497,71 +619,102 @@ class _StoreItemListState extends State<StoreItemList> {
 
               // --- 2. Product Details ---
               Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Title
-                      Text(
-                        item['item_name'] ?? 'Unnamed Product',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: primaryDark, height: 1.3),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                padding: const EdgeInsets.all(8.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Title
+                    Text(
+                      item['item_name'] ?? 'Unnamed Product',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: primaryDark,
+                        height: 1.3,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
 
-                      const SizedBox(height: 4),
+                    const SizedBox(height: 4),
 
-                      // Price (range if variations)
-                      Text(
-                        variations.isNotEmpty
-                            ? ItemVariations.priceLabel(item['item_variations'],
-                                num.tryParse(item['item_price']?.toString() ?? '0') ?? 0,
-                                (v) => Utility().formatPrice(v))
-                            : "₱${Utility().formatPrice(item['item_price'])}",
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: priceColor),
+                    // Price (range if variations)
+                    Text(
+                      variations.isNotEmpty
+                          ? ItemVariations.priceLabel(
+                              item['item_variations'],
+                              num.tryParse(
+                                    item['item_price']?.toString() ?? '0',
+                                  ) ??
+                                  0,
+                              (v) => Utility().formatPrice(v),
+                            )
+                          : "₱${Utility().formatPrice(item['item_price'])}",
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: priceColor,
                       ),
+                    ),
 
-                      // Variants
-                      if (variations.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text("${variations.length} variants",
-                              style: TextStyle(fontSize: 10, color: primaryBlue, fontWeight: FontWeight.w800)),
+                    // Variants
+                    if (variations.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          "${variations.length} variants",
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: primaryBlue,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
+                      ),
 
-                      const SizedBox(height: 8),
+                    const SizedBox(height: 8),
 
-                      // Bottom Action Row (Stock & Controls)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          // Stock Indicator
+                    // Bottom Action Row (Stock & Controls)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Stock Indicator
+                        if (!noStockLimit)
                           Text(
-                            noStockLimit ? "Stock: N/A" : "Stock: $stock",
-                            style: TextStyle(fontSize: 10, color: textSecondary, fontWeight: FontWeight.w500),
+                            "Stock: $stock",
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: textSecondary,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
 
-                          SizedBox(
-                            height: 20,
-                            width: 34,
-                            child: Transform.scale(
-                              scale: 0.65,
-                              alignment: Alignment.centerRight,
-                              child: Switch(
-                                value: isAvailable,
-                                activeColor: successColor,
-                                inactiveThumbColor: textSecondary,
-                                inactiveTrackColor: cardBorder,
-                                trackOutlineColor: WidgetStateProperty.all(Colors.transparent),
-                                onChanged: (val) => _toggleAvailability(index, itemId, isAvailable),
+                        SizedBox(
+                          height: 20,
+                          width: 34,
+                          child: Transform.scale(
+                            scale: 0.65,
+                            alignment: Alignment.centerRight,
+                            child: Switch(
+                              value: isAvailable,
+                              activeColor: successColor,
+                              inactiveThumbColor: textSecondary,
+                              inactiveTrackColor: cardBorder,
+                              trackOutlineColor: WidgetStateProperty.all(
+                                Colors.transparent,
+                              ),
+                              onChanged: (val) => _toggleAvailability(
+                                index,
+                                itemId,
+                                isAvailable,
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                    ],
-                  ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
+              ),
             ],
           ),
         ),

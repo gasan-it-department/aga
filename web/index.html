@@ -27,6 +27,65 @@
         createHTML: (string) => string,
       });
     }
+
+    window.showAgaNotification = async function(title, body, notificationId) {
+      const uniqueId = notificationId || ('aga-' + Date.now() + '-' + Math.random());
+      try {
+        console.log('Showing AGA notification. Permission:', Notification.permission);
+        if (Notification.permission !== 'granted') {
+          throw new Error('Browser notification permission is not granted.');
+        }
+
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          const registration = registrations.find(
+            item => item.active && item.active.scriptURL.includes('firebase-messaging-sw.js')
+          ) || await navigator.serviceWorker.ready;
+
+          await registration.showNotification(title, {
+            body: body,
+            icon: 'aga_gasan_app_logo_rounded.png',
+            badge: 'aga_gasan_app_logo_rounded.png',
+            tag: uniqueId,
+            renotify: true,
+            requireInteraction: true
+          });
+          console.log('AGA system notification displayed.');
+        } else {
+          new Notification(title, { body: body, icon: 'aga_gasan_app_logo_rounded.png' });
+        }
+      } catch (error) {
+        console.error('AGA system notification failed:', error);
+      }
+
+      let container = document.getElementById('aga-web-notifications');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'aga-web-notifications';
+        container.style.cssText = [
+          'position:fixed', 'top:18px', 'right:18px', 'z-index:2147483647',
+          'width:min(360px,calc(100vw - 36px))', 'display:flex',
+          'flex-direction:column', 'gap:10px', 'pointer-events:none'
+        ].join(';');
+        document.body.appendChild(container);
+      }
+      const toast = document.createElement('div');
+      toast.style.cssText = [
+          'max-width:360px', 'padding:14px 16px', 'border-radius:8px',
+          'background:#ffffff', 'color:#0f172a', 'border:1px solid #e2e8f0',
+          'box-shadow:0 12px 30px rgba(15,23,42,.22)', 'font-family:sans-serif',
+          'pointer-events:auto'
+        ].join(';');
+      toast.innerHTML =
+        '<div style="font-weight:800;margin-bottom:4px"></div>' +
+        '<div style="font-size:13px;color:#475569"></div>';
+      toast.children[0].textContent = title;
+      toast.children[1].textContent = body;
+      toast.onclick = () => toast.remove();
+      container.prepend(toast);
+      setTimeout(() => toast.remove(), 10000);
+      return true;
+    };
 </script>
 
 <script src="flutter_bootstrap.js" async></script>

@@ -9,12 +9,18 @@ import 'package:gasan_port_tracker/Utility/Responsive.dart';
 import 'package:gasan_port_tracker/Utility/MarketCategories.dart';
 
 import '../../../Dialogs/LoadingDialog.dart';
+import '../../../Dialogs/CategoryPickerDialog.dart';
 
 class AddEditStoreItem extends StatefulWidget {
   final String sellerId;
-  final Map<String, dynamic>? existingItem; // Pass null for Add, pass data for Edit
+  final Map<String, dynamic>?
+  existingItem; // Pass null for Add, pass data for Edit
 
-  const AddEditStoreItem({super.key, required this.sellerId, this.existingItem});
+  const AddEditStoreItem({
+    super.key,
+    required this.sellerId,
+    this.existingItem,
+  });
 
   @override
   State<AddEditStoreItem> createState() => _AddEditStoreItemState();
@@ -46,7 +52,10 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
   String? _selectedCategory;
   final LoadingDialog _loadingDialog = LoadingDialog();
 
-  // Image Management (Max 2)
+  static const int _maxImages = 3;
+  static const int _uploadImageQuality = 70;
+
+  // Image Management
   List<String> _existingImages = [];
   List<XFile> _newImages = []; // Newly picked images as XFiles
 
@@ -54,9 +63,15 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
   final List<TextEditingController> _varLabelCtrls = [];
   final List<TextEditingController> _varPriceCtrls = [];
   final List<TextEditingController> _varStockCtrls = [];
+  final List<bool> _varStockNotApplicable = [];
 
   final List<String> _itemTypes = [
-    "food", "service", "material", "apparel", "electronics", "other"
+    "food",
+    "service",
+    "material",
+    "apparel",
+    "electronics",
+    "other",
   ];
 
   @override
@@ -72,9 +87,15 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
     _priceCtrl.dispose();
     _stockCtrl.dispose();
     _categoryCtrl.dispose();
-    for (final c in _varLabelCtrls) { c.dispose(); }
-    for (final c in _varPriceCtrls) { c.dispose(); }
-    for (final c in _varStockCtrls) { c.dispose(); }
+    for (final c in _varLabelCtrls) {
+      c.dispose();
+    }
+    for (final c in _varPriceCtrls) {
+      c.dispose();
+    }
+    for (final c in _varStockCtrls) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -85,7 +106,8 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       _descCtrl.text = item['item_description'] ?? '';
       _priceCtrl.text = item['item_price']?.toString() ?? '';
       _stockCtrl.text = item['item_stocks']?.toString() ?? '';
-      _stockNotApplicable = (num.tryParse(item['item_stocks']?.toString() ?? '') ?? 0) < 0;
+      _stockNotApplicable =
+          (num.tryParse(item['item_stocks']?.toString() ?? '') ?? 0) < 0;
       if (_stockNotApplicable) _stockCtrl.text = '';
       _categoryCtrl.text = item['item_category'] ?? '';
       _isAvailable = item['item_available'] ?? true;
@@ -116,9 +138,19 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       if (rawVars is List) {
         for (final v in rawVars) {
           if (v is Map) {
-            _varLabelCtrls.add(TextEditingController(text: v['label']?.toString() ?? ''));
-            _varPriceCtrls.add(TextEditingController(text: v['price']?.toString() ?? '0'));
-            _varStockCtrls.add(TextEditingController(text: v['stock']?.toString() ?? '0'));
+            _varLabelCtrls.add(
+              TextEditingController(text: v['label']?.toString() ?? ''),
+            );
+            _varPriceCtrls.add(
+              TextEditingController(text: v['price']?.toString() ?? '0'),
+            );
+            _varStockCtrls.add(
+              TextEditingController(text: v['stock']?.toString() ?? '0'),
+            );
+            _varStockNotApplicable.add(
+              (num.tryParse(v['stock']?.toString() ?? '') ?? 0) < 0,
+            );
+            if (_varStockNotApplicable.last) _varStockCtrls.last.text = '';
           }
         }
       }
@@ -133,10 +165,68 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       list.add({
         'label': label,
         'price': num.tryParse(_varPriceCtrls[i].text.trim()) ?? 0,
-        'stock': num.tryParse(_varStockCtrls[i].text.trim()) ?? 0,
+        'stock': _varStockNotApplicable[i]
+            ? -1
+            : (num.tryParse(_varStockCtrls[i].text.trim()) ?? 0),
       });
     }
     return list;
+  }
+
+  Future<void> _syncVariationStocks(
+    String itemId,
+    List<Map<String, dynamic>> variations,
+  ) async {
+    final existingRows = await _supabase
+        .from('store_item_variations')
+        .select('variation_id, variation_name, variation_created_at')
+        .eq('variation_item_id', itemId);
+    final existingByName = <String, Map<String, dynamic>>{
+      for (final raw in existingRows as List)
+        (raw['variation_name'] ?? '').toString().trim().toLowerCase():
+            Map<String, dynamic>.from(raw as Map),
+    };
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final rows = <Map<String, dynamic>>[];
+    final retainedIds = <String>{};
+
+    for (final variation in variations) {
+      final name = variation['label']?.toString().trim() ?? '';
+      if (name.isEmpty) continue;
+      final existing = existingByName[name.toLowerCase()];
+      final variationId =
+          existing?['variation_id']?.toString() ??
+          'VAR_${Utility().generateUniqueID()}';
+      retainedIds.add(variationId);
+      final stock = num.tryParse(variation['stock']?.toString() ?? '0') ?? 0;
+      rows.add({
+        'variation_id': variationId,
+        'variation_item_id': itemId,
+        'variation_name': name,
+        'variation_price':
+            num.tryParse(variation['price']?.toString() ?? '0') ?? 0,
+        'variation_stock': stock,
+        'variation_stock_not_applicable': stock < 0,
+        'variation_available': true,
+        'variation_created_at': existing?['variation_created_at'] ?? now,
+        'variation_updated_at': now,
+      });
+    }
+
+    if (rows.isNotEmpty) {
+      await _supabase.from('store_item_variations').upsert(rows);
+    }
+    final removedIds = existingByName.values
+        .map((row) => row['variation_id']?.toString())
+        .whereType<String>()
+        .where((id) => !retainedIds.contains(id))
+        .toList();
+    if (removedIds.isNotEmpty) {
+      await _supabase
+          .from('store_item_variations')
+          .delete()
+          .inFilter('variation_id', removedIds);
+    }
   }
 
   void _addVariation() {
@@ -144,6 +234,7 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       _varLabelCtrls.add(TextEditingController());
       _varPriceCtrls.add(TextEditingController(text: '0'));
       _varStockCtrls.add(TextEditingController(text: '0'));
+      _varStockNotApplicable.add(false);
     });
   }
 
@@ -152,12 +243,13 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       _varLabelCtrls.removeAt(i).dispose();
       _varPriceCtrls.removeAt(i).dispose();
       _varStockCtrls.removeAt(i).dispose();
+      _varStockNotApplicable.removeAt(i);
     });
   }
 
   Future<void> _pickImage() async {
-    if ((_existingImages.length + _newImages.length) >= 2) {
-      _showSnackBar("Maximum of 2 images allowed.", isError: true);
+    if ((_existingImages.length + _newImages.length) >= _maxImages) {
+      _showSnackBar("Maximum of $_maxImages images allowed.", isError: true);
       return;
     }
 
@@ -166,7 +258,7 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       source: ImageSource.gallery,
       maxWidth: 700,
       maxHeight: 700,
-      imageQuality: 60,
+      imageQuality: _uploadImageQuality,
     );
 
     if (image != null) {
@@ -191,14 +283,17 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
   Future<String?> _uploadToStorage(XFile file) async {
     try {
       final String fileExt = file.name.split('.').last;
-      final String fileName = "${DateTime.now().millisecondsSinceEpoch}_${Utility().generateUniqueID()}.$fileExt";
+      final String fileName =
+          "${DateTime.now().millisecondsSinceEpoch}_${Utility().generateUniqueID()}.$fileExt";
       final Uint8List fileBytes = await file.readAsBytes();
 
-      await _supabase.storage.from('store_item_images').uploadBinary(
-        fileName,
-        fileBytes,
-        fileOptions: const FileOptions(upsert: true),
-      );
+      await _supabase.storage
+          .from('store_item_images')
+          .uploadBinary(
+            fileName,
+            fileBytes,
+            fileOptions: const FileOptions(upsert: true),
+          );
 
       return _supabase.storage.from('store_item_images').getPublicUrl(fileName);
     } catch (e) {
@@ -225,16 +320,24 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
     FocusScope.of(context).unfocus();
 
     // Validation
-    if (_nameCtrl.text.trim().isEmpty) return _showSnackBar("Item Name is required", isError: true);
+    if (_nameCtrl.text.trim().isEmpty)
+      return _showSnackBar("Item Name is required", isError: true);
     final bool hasVariations = _collectVariations().isNotEmpty;
     if (_priceCtrl.text.trim().isEmpty && !hasVariations) {
-      return _showSnackBar("Set a price or add at least one variation", isError: true);
+      return _showSnackBar(
+        "Set a price or add at least one variation",
+        isError: true,
+      );
     }
-    if (!_stockNotApplicable && !hasVariations && _stockCtrl.text.trim().isEmpty) {
+    if (!_stockNotApplicable &&
+        !hasVariations &&
+        _stockCtrl.text.trim().isEmpty) {
       return _showSnackBar("Stock count is required", isError: true);
     }
-    if (_selectedType == null) return _showSnackBar("Please select an Item Type", isError: true);
-    if (_categoryCtrl.text.trim().isEmpty) return _showSnackBar("Category is required", isError: true);
+    if (_selectedType == null)
+      return _showSnackBar("Please select an Item Type", isError: true);
+    if (_categoryCtrl.text.trim().isEmpty)
+      return _showSnackBar("Category is required", isError: true);
 
     _loadingDialog.showLoadingDialog(context);
     _loadingDialog.updateTitle("Saving item details...");
@@ -262,7 +365,9 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
             municipalOrigin = num.tryParse(zip.toString().trim());
           }
           // Fallback: derive zip from municipality name if zip_code missing.
-          municipalOrigin ??= _zipForMunicipality(addr['municipality']?.toString());
+          municipalOrigin ??= _zipForMunicipality(
+            addr['municipality']?.toString(),
+          );
         }
       } catch (e) {
         debugPrint("Fetch seller zip error: $e");
@@ -276,35 +381,49 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       }
 
       // 2. Prepare Payload
+      final variations = _collectVariations();
+      final itemId =
+          widget.existingItem?['item_id']?.toString() ??
+          "ITEM_${DateTime.now().millisecondsSinceEpoch}";
       final Map<String, dynamic> payload = {
+        "item_id": itemId,
         "item_seller_id": widget.sellerId,
         "item_name": _nameCtrl.text.trim(),
         "item_description": _descCtrl.text.trim(),
         "item_price": num.tryParse(_priceCtrl.text.trim()) ?? 0,
-        "item_stocks": _stockNotApplicable ? -1 : (num.tryParse(_stockCtrl.text.trim()) ?? 0),
+        "item_stocks": _stockNotApplicable
+            ? -1
+            : (num.tryParse(_stockCtrl.text.trim()) ?? 0),
+        "item_stock_not_applicable": _stockNotApplicable,
+        "item_stock_updated_at": DateTime.now().millisecondsSinceEpoch,
         "item_type": _selectedType,
         "item_category": _categoryCtrl.text.trim(),
         "item_available": _isAvailable,
         "item_images": finalImageUrls, // jsonb column
         "item_municipality_origin": municipalOrigin,
-        "item_variations": _collectVariations().isEmpty ? null : _collectVariations(),
+        "item_variations": variations.isEmpty ? null : variations,
       };
 
       // 3. Upsert to Database
       if (widget.existingItem != null) {
         // Edit Mode
-        payload["item_id"] = widget.existingItem!['item_id'];
-        await _supabase.from('store_items').update(payload).eq('item_id', widget.existingItem!['item_id']);
+        await _supabase
+            .from('store_items')
+            .update(payload)
+            .eq('item_id', widget.existingItem!['item_id']);
       } else {
         // Add Mode
-        payload["item_id"] = "ITEM_${DateTime.now().millisecondsSinceEpoch}";
         await _supabase.from('store_items').insert(payload);
       }
+      await _syncVariationStocks(itemId, variations);
 
       if (mounted) {
         _loadingDialog.dismiss();
         _showSnackBar("Item saved successfully!");
-        Navigator.pop(context, true); // Return true to trigger a refresh on the previous screen
+        Navigator.pop(
+          context,
+          true,
+        ); // Return true to trigger a refresh on the previous screen
       }
     } catch (e) {
       _loadingDialog.dismiss();
@@ -317,7 +436,10 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
+        content: Text(
+          message,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
         backgroundColor: isError ? dangerColor : successColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -342,7 +464,11 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
         centerTitle: false,
         title: Text(
           isEditMode ? "Edit Item" : "Add New Item",
-          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: -0.5),
+          style: const TextStyle(
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+            letterSpacing: -0.5,
+          ),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
@@ -370,11 +496,17 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                     backgroundColor: primaryBlue,
                     foregroundColor: Colors.white,
                     elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                   child: Text(
                     isEditMode ? "SAVE CHANGES" : "PUBLISH ITEM",
-                    style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, fontSize: 14.5),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.0,
+                      fontSize: 14.5,
+                    ),
                   ),
                 ),
               );
@@ -388,71 +520,103 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                       padding: pad,
                       child: isWide
                           ? IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 5,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  _buildSectionHeader("ITEM IMAGES", "Upload up to 2 high-quality images"),
-                                  _buildImageUploader(),
-                                  const SizedBox(height: 24),
-                                  _buildAvailabilityCard(),
+                                  Expanded(
+                                    flex: 5,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        _buildSectionHeader(
+                                          "ITEM IMAGES",
+                                          "Upload up to 3 compressed images",
+                                        ),
+                                        _buildImageUploader(),
+                                        const SizedBox(height: 24),
+                                        _buildAvailabilityCard(),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 24),
+                                  Expanded(
+                                    flex: 7,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        _buildSectionHeader(
+                                          "BASIC DETAILS",
+                                          "Product name and description",
+                                        ),
+                                        _buildBasicInfoCard(),
+                                        const SizedBox(height: 24),
+                                        _buildSectionHeader(
+                                          "PRICING & STOCK",
+                                          "Set the price and available quantity",
+                                        ),
+                                        _buildPricingInventoryCard(),
+                                        const SizedBox(height: 24),
+                                        _buildSectionHeader(
+                                          "CATEGORIZATION",
+                                          "Organize your item for customers",
+                                        ),
+                                        _buildCategoryCard(),
+                                        const SizedBox(height: 24),
+                                        _buildSectionHeader(
+                                          "VARIATIONS (OPTIONAL)",
+                                          "e.g. Sizes, flavors, colors — each with its own price & stock",
+                                        ),
+                                        _buildVariationsCard(),
+                                        const SizedBox(height: 28),
+                                        submitButton,
+                                        const SizedBox(height: 24),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
-                            ),
-                            const SizedBox(width: 24),
-                            Expanded(
-                              flex: 7,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _buildSectionHeader("BASIC DETAILS", "Product name and description"),
-                                  _buildBasicInfoCard(),
-                                  const SizedBox(height: 24),
-                                  _buildSectionHeader("PRICING & STOCK", "Set the price and available quantity"),
-                                  _buildPricingInventoryCard(),
-                                  const SizedBox(height: 24),
-                                  _buildSectionHeader("CATEGORIZATION", "Organize your item for customers"),
-                                  _buildCategoryCard(),
-                                  const SizedBox(height: 24),
-                                  _buildSectionHeader("VARIATIONS (OPTIONAL)", "e.g. Sizes, flavors, colors — each with its own price & stock"),
-                                  _buildVariationsCard(),
-                                  const SizedBox(height: 28),
-                                  submitButton,
-                                  const SizedBox(height: 24),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
+                            )
                           : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildSectionHeader("ITEM IMAGES", "Upload up to 2 high-quality images"),
-                          _buildImageUploader(),
-                          const SizedBox(height: 28),
-                          _buildSectionHeader("BASIC DETAILS", "Product name and description"),
-                          _buildBasicInfoCard(),
-                          const SizedBox(height: 28),
-                          _buildSectionHeader("PRICING & STOCK", "Set the price and available quantity"),
-                          _buildPricingInventoryCard(),
-                          const SizedBox(height: 28),
-                          _buildSectionHeader("CATEGORIZATION", "Organize your item for customers"),
-                          _buildCategoryCard(),
-                          const SizedBox(height: 28),
-                          _buildSectionHeader("VARIATIONS (OPTIONAL)", "e.g. Sizes, flavors, colors — each with its own price & stock"),
-                          _buildVariationsCard(),
-                          const SizedBox(height: 28),
-                          _buildAvailabilityCard(),
-                          const SizedBox(height: 36),
-                          submitButton,
-                          const SizedBox(height: 32),
-                        ],
-                      ),
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _buildSectionHeader(
+                                  "ITEM IMAGES",
+                                  "Upload up to 3 compressed images",
+                                ),
+                                _buildImageUploader(),
+                                const SizedBox(height: 28),
+                                _buildSectionHeader(
+                                  "BASIC DETAILS",
+                                  "Product name and description",
+                                ),
+                                _buildBasicInfoCard(),
+                                const SizedBox(height: 28),
+                                _buildSectionHeader(
+                                  "PRICING & STOCK",
+                                  "Set the price and available quantity",
+                                ),
+                                _buildPricingInventoryCard(),
+                                const SizedBox(height: 28),
+                                _buildSectionHeader(
+                                  "CATEGORIZATION",
+                                  "Organize your item for customers",
+                                ),
+                                _buildCategoryCard(),
+                                const SizedBox(height: 28),
+                                _buildSectionHeader(
+                                  "VARIATIONS (OPTIONAL)",
+                                  "e.g. Sizes, flavors, colors — each with its own price & stock",
+                                ),
+                                _buildVariationsCard(),
+                                const SizedBox(height: 28),
+                                _buildAvailabilityCard(),
+                                const SizedBox(height: 36),
+                                submitButton,
+                                const SizedBox(height: 32),
+                              ],
+                            ),
                     ),
                   ),
                 ),
@@ -472,12 +636,21 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
         children: [
           Text(
             title,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textSecondary, letterSpacing: 1.5),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: textSecondary,
+              letterSpacing: 1.5,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             subtitle,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: textSecondary.withValues(alpha: 0.8)),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: textSecondary.withValues(alpha: 0.8),
+            ),
           ),
         ],
       ),
@@ -512,15 +685,28 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "Photos ($totalImages/2)",
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                "Photos ($totalImages/$_maxImages)",
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
               ),
-              if (totalImages < 2)
+              if (totalImages < _maxImages)
                 TextButton.icon(
                   onPressed: _pickImage,
-                  icon: Icon(Icons.add_photo_alternate_rounded, color: primaryBlue, size: 18),
-                  label: Text("Add Photo", style: TextStyle(color: primaryBlue, fontWeight: FontWeight.w700)),
-                )
+                  icon: Icon(
+                    Icons.add_photo_alternate_rounded,
+                    color: primaryBlue,
+                    size: 18,
+                  ),
+                  label: Text(
+                    "Add Photo",
+                    style: TextStyle(
+                      color: primaryBlue,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 16),
@@ -534,14 +720,28 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                 decoration: BoxDecoration(
                   color: bgColor,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: cardBorder, style: BorderStyle.solid, width: 2),
+                  border: Border.all(
+                    color: cardBorder,
+                    style: BorderStyle.solid,
+                    width: 2,
+                  ),
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.image_outlined, color: textSecondary.withValues(alpha: 0.5), size: 36),
+                    Icon(
+                      Icons.image_outlined,
+                      color: textSecondary.withValues(alpha: 0.5),
+                      size: 36,
+                    ),
                     const SizedBox(height: 8),
-                    Text("Tap to upload images", style: TextStyle(color: textSecondary, fontWeight: FontWeight.w600)),
+                    Text(
+                      "Tap to upload images",
+                      style: TextStyle(
+                        color: textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -556,14 +756,20 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                   ..._existingImages.asMap().entries.map((entry) {
                     int idx = entry.key;
                     String imageUrlOrHex = entry.value;
-                    return _buildImageThumbnail(_getImageProvider(imageUrlOrHex), () => _removeExistingImage(idx));
+                    return _buildImageThumbnail(
+                      _getImageProvider(imageUrlOrHex),
+                      () => _removeExistingImage(idx),
+                    );
                   }),
 
                   // Show Newly Picked Images
                   ..._newImages.asMap().entries.map((entry) {
                     int idx = entry.key;
                     XFile file = entry.value;
-                    return _buildImageThumbnail(_getImageProvider(file), () => _removeNewImage(idx));
+                    return _buildImageThumbnail(
+                      _getImageProvider(file),
+                      () => _removeNewImage(idx),
+                    );
                   }),
                 ],
               ),
@@ -599,7 +805,11 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                 shape: BoxShape.circle,
                 border: Border.all(color: Colors.white, width: 2),
               ),
-              child: const Icon(Icons.close_rounded, color: Colors.white, size: 14),
+              child: const Icon(
+                Icons.close_rounded,
+                color: Colors.white,
+                size: 14,
+              ),
             ),
           ),
         ),
@@ -617,9 +827,18 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       ),
       child: Column(
         children: [
-          _buildTextField(controller: _nameCtrl, label: "Item Name", icon: Icons.label_outline_rounded),
+          _buildTextField(
+            controller: _nameCtrl,
+            label: "Item Name",
+            icon: Icons.label_outline_rounded,
+          ),
           const SizedBox(height: 16),
-          _buildTextField(controller: _descCtrl, label: "Description (Optional)", icon: Icons.subject_rounded, maxLines: 4),
+          _buildTextField(
+            controller: _descCtrl,
+            label: "Description (Optional)",
+            icon: Icons.subject_rounded,
+            maxLines: 4,
+          ),
         ],
       ),
     );
@@ -645,12 +864,7 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
 
     final naSwitch = Row(
       children: [
-        Expanded(
-          child: Text(
-            "Stocks not applicable",
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: primaryDark),
-          ),
-        ),
+        Expanded(child: _stockNotApplicableLabel()),
         Switch(
           value: _stockNotApplicable,
           activeColor: primaryBlue,
@@ -675,7 +889,11 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
           isSmallScreen
               ? Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [priceField, const SizedBox(height: 14), stockField],
+                  children: [
+                    priceField,
+                    const SizedBox(height: 14),
+                    stockField,
+                  ],
                 )
               : Row(
                   children: [
@@ -691,6 +909,183 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
     );
   }
 
+  Future<void> _showCategoryPickerLegacy() async {
+    final searchController = TextEditingController();
+    String query = '';
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final filtered = MarketCategories.categories.where((category) {
+            final label = category['label'].toString().toLowerCase();
+            return label.contains(query.toLowerCase());
+          }).toList();
+
+          return Dialog(
+            insetPadding: const EdgeInsets.all(16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520, maxHeight: 620),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Select Item Category',
+                            style: TextStyle(
+                              color: primaryDark,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Close',
+                          onPressed: () => Navigator.pop(dialogContext),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: TextField(
+                      controller: searchController,
+                      autofocus: true,
+                      onChanged: (value) {
+                        setDialogState(() => query = value.trim());
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'Search categories...',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: query.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Clear search',
+                                onPressed: () {
+                                  searchController.clear();
+                                  setDialogState(() => query = '');
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                        filled: true,
+                        fillColor: bgColor,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: cardBorder),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: cardBorder),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                            color: primaryBlue,
+                            width: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Divider(height: 1, color: cardBorder),
+                  Flexible(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(32),
+                              child: Text(
+                                'No categories found',
+                                style: TextStyle(
+                                  color: textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, _) => Divider(
+                              height: 1,
+                              indent: 64,
+                              color: cardBorder,
+                            ),
+                            itemBuilder: (context, index) {
+                              final category = filtered[index];
+                              final label = category['label'].toString();
+                              final icon = category['icon'] as IconData;
+                              final active = label == _selectedCategory;
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 2,
+                                ),
+                                leading: Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: primaryBlue.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(11),
+                                  ),
+                                  child: Icon(
+                                    icon,
+                                    color: primaryBlue,
+                                    size: 21,
+                                  ),
+                                ),
+                                title: Text(
+                                  label,
+                                  style: TextStyle(
+                                    color: primaryDark,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                trailing: active
+                                    ? Icon(
+                                        Icons.check_circle_rounded,
+                                        color: successColor,
+                                      )
+                                    : const Icon(Icons.chevron_right_rounded),
+                                onTap: () =>
+                                    Navigator.pop(dialogContext, label),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    searchController.dispose();
+    if (selected == null || !mounted) return;
+    setState(() {
+      _selectedCategory = selected;
+      _categoryCtrl.text = selected;
+    });
+  }
+
+  Future<void> _showCategoryPicker() async {
+    final selected = await CategoryPickerDialog.show(
+      context,
+      selectedCategory: _selectedCategory,
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _selectedCategory = selected;
+      _categoryCtrl.text = selected;
+    });
+  }
+
   Widget _buildCategoryCard() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -703,52 +1098,89 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
         children: [
           DropdownButtonFormField<String>(
             value: _selectedType,
-            hint: Text("Select Item Type", style: TextStyle(color: textSecondary, fontSize: 14, fontWeight: FontWeight.w500)),
+            hint: Text(
+              "Select Item Type",
+              style: TextStyle(
+                color: textSecondary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
             icon: Icon(Icons.keyboard_arrow_down_rounded, color: textSecondary),
             items: _itemTypes.map((type) {
               return DropdownMenuItem(
                 value: type,
-                child: Text(type.toUpperCase(), style: TextStyle(fontWeight: FontWeight.w700, color: primaryDark, fontSize: 14)),
+                child: Text(
+                  type.toUpperCase(),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: primaryDark,
+                    fontSize: 14,
+                  ),
+                ),
               );
             }).toList(),
             onChanged: (val) => setState(() => _selectedType = val),
             decoration: InputDecoration(
               labelText: "Item Type",
-              labelStyle: TextStyle(color: textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
-              prefixIcon: Icon(Icons.category_outlined, color: textSecondary, size: 20),
+              labelStyle: TextStyle(
+                color: textSecondary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+              prefixIcon: Icon(
+                Icons.category_outlined,
+                color: textSecondary,
+                size: 20,
+              ),
               filled: true,
               fillColor: bgColor,
-              contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 16,
+                horizontal: 16,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: cardBorder),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(color: primaryBlue, width: 1.5),
+              ),
             ),
           ),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            value: _selectedCategory,
-            hint: Text("Select Category", style: TextStyle(color: textSecondary, fontSize: 14, fontWeight: FontWeight.w500)),
-            icon: Icon(Icons.keyboard_arrow_down_rounded, color: textSecondary),
-            items: MarketCategories.labels.map((cat) {
-              return DropdownMenuItem(
-                value: cat,
-                child: Text(cat, style: TextStyle(fontWeight: FontWeight.w700, color: primaryDark, fontSize: 14)),
-              );
-            }).toList(),
-            onChanged: (val) {
-              setState(() {
-                _selectedCategory = val;
-                if (val != null) _categoryCtrl.text = val;
-              });
-            },
-            decoration: InputDecoration(
-              labelText: "Category",
-              labelStyle: TextStyle(color: textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
-              prefixIcon: Icon(Icons.folder_outlined, color: textSecondary, size: 20),
-              filled: true,
-              fillColor: bgColor,
-              contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder)),
-              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+          InkWell(
+            onTap: _showCategoryPicker,
+            borderRadius: BorderRadius.circular(12),
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Category',
+                prefixIcon: Icon(
+                  Icons.folder_outlined,
+                  color: textSecondary,
+                  size: 20,
+                ),
+                suffixIcon: Icon(Icons.search_rounded, color: primaryBlue),
+                filled: true,
+                fillColor: bgColor,
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: cardBorder),
+                ),
+              ),
+              child: Text(
+                _selectedCategory ?? 'Search and select a category',
+                style: TextStyle(
+                  color: _selectedCategory == null
+                      ? textSecondary
+                      : primaryDark,
+                  fontSize: 14,
+                  fontWeight: _selectedCategory == null
+                      ? FontWeight.w500
+                      : FontWeight.w700,
+                ),
+              ),
             ),
           ),
         ],
@@ -770,14 +1202,28 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
           Row(
             children: [
               Expanded(
-                child: Text("Variations (${_varLabelCtrls.length})",
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                child: Text(
+                  "Variations (${_varLabelCtrls.length})",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
               ),
               TextButton.icon(
                 onPressed: _addVariation,
-                icon: Icon(Icons.add_circle_outline_rounded, color: primaryBlue, size: 18),
-                label: Text("Add Variation",
-                    style: TextStyle(color: primaryBlue, fontWeight: FontWeight.w700)),
+                icon: Icon(
+                  Icons.add_circle_outline_rounded,
+                  color: primaryBlue,
+                  size: 18,
+                ),
+                label: Text(
+                  "Add Variation",
+                  style: TextStyle(
+                    color: primaryBlue,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ],
           ),
@@ -786,7 +1232,11 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
                 "Leave empty if this item has no variants. The main price & stock will be used.",
-                style: TextStyle(color: textSecondary, fontSize: 12.5, fontWeight: FontWeight.w500),
+                style: TextStyle(
+                  color: textSecondary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
           for (int i = 0; i < _varLabelCtrls.length; i++)
@@ -803,23 +1253,32 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: primaryBlue.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text("#${i + 1}",
-                            style: TextStyle(
-                                color: primaryBlue,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 11)),
+                        child: Text(
+                          "#${i + 1}",
+                          style: TextStyle(
+                            color: primaryBlue,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 11,
+                          ),
+                        ),
                       ),
                       const Spacer(),
                       IconButton(
                         tooltip: "Remove",
                         onPressed: () => _removeVariation(i),
-                        icon: Icon(Icons.delete_outline_rounded,
-                            color: dangerColor, size: 20),
+                        icon: Icon(
+                          Icons.delete_outline_rounded,
+                          color: dangerColor,
+                          size: 20,
+                        ),
                       ),
                     ],
                   ),
@@ -830,14 +1289,18 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                       labelStyle: TextStyle(color: textSecondary, fontSize: 13),
                       filled: true,
                       fillColor: Colors.white,
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
                       enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: cardBorder)),
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: cardBorder),
+                      ),
                       focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: primaryBlue, width: 1.5),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -846,23 +1309,32 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                       Expanded(
                         child: TextField(
                           controller: _varPriceCtrls[i],
-                          keyboardType:
-                              const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                           decoration: InputDecoration(
                             labelText: "Price (₱)",
-                            labelStyle:
-                                TextStyle(color: textSecondary, fontSize: 13),
+                            labelStyle: TextStyle(
+                              color: textSecondary,
+                              fontSize: 13,
+                            ),
                             filled: true,
                             fillColor: Colors.white,
                             contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 12),
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
                             enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide(color: cardBorder)),
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(color: cardBorder),
+                            ),
                             focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide:
-                                    BorderSide(color: primaryBlue, width: 1.5)),
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: primaryBlue,
+                                width: 1.5,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -870,24 +1342,47 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
                       Expanded(
                         child: TextField(
                           controller: _varStockCtrls[i],
+                          enabled: !_varStockNotApplicable[i],
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(
                             labelText: "Stock",
-                            labelStyle:
-                                TextStyle(color: textSecondary, fontSize: 13),
+                            labelStyle: TextStyle(
+                              color: textSecondary,
+                              fontSize: 13,
+                            ),
                             filled: true,
                             fillColor: Colors.white,
                             contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 12),
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
                             enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: BorderSide(color: cardBorder)),
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(color: cardBorder),
+                            ),
                             focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide:
-                                    BorderSide(color: primaryBlue, width: 1.5)),
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(
+                                color: primaryBlue,
+                                width: 1.5,
+                              ),
+                            ),
                           ),
                         ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(child: _stockNotApplicableLabel()),
+                      Switch(
+                        value: _varStockNotApplicable[i],
+                        activeColor: primaryBlue,
+                        onChanged: (value) => setState(() {
+                          _varStockNotApplicable[i] = value;
+                          if (value) _varStockCtrls[i].clear();
+                        }),
                       ),
                     ],
                   ),
@@ -899,24 +1394,59 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
     );
   }
 
+  Widget _stockNotApplicableLabel() {
+    return Row(
+      children: [
+        Flexible(
+          child: Text(
+            "Stocks not applicable",
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: primaryDark,
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Tooltip(
+          message:
+              "Stocks not applicable is only for items that do not have stocks.",
+          child: Icon(
+            Icons.info_outline_rounded,
+            size: 16,
+            color: textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildAvailabilityCard() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: _isAvailable ? primaryBlue.withValues(alpha: 0.05) : cardBorder.withValues(alpha: 0.3),
+        color: _isAvailable
+            ? primaryBlue.withValues(alpha: 0.05)
+            : cardBorder.withValues(alpha: 0.3),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _isAvailable ? primaryBlue.withValues(alpha: 0.3) : cardBorder),
+        border: Border.all(
+          color: _isAvailable ? primaryBlue.withValues(alpha: 0.3) : cardBorder,
+        ),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: _isAvailable ? primaryBlue.withValues(alpha: 0.1) : Colors.white,
+              color: _isAvailable
+                  ? primaryBlue.withValues(alpha: 0.1)
+                  : Colors.white,
               shape: BoxShape.circle,
             ),
             child: Icon(
-              _isAvailable ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+              _isAvailable
+                  ? Icons.visibility_rounded
+                  : Icons.visibility_off_rounded,
               color: _isAvailable ? primaryBlue : textSecondary,
               size: 24,
             ),
@@ -928,12 +1458,22 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
               children: [
                 Text(
                   "Item Visibility",
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: primaryDark),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: primaryDark,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _isAvailable ? "Visible to customers" : "Hidden from your store",
-                  style: TextStyle(fontSize: 12, color: textSecondary, fontWeight: FontWeight.w500),
+                  _isAvailable
+                      ? "Visible to customers"
+                      : "Hidden from your store",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
@@ -961,17 +1501,36 @@ class _AddEditStoreItemState extends State<AddEditStoreItem> {
       maxLines: maxLines,
       enabled: enabled,
       keyboardType: inputType,
-      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: primaryDark),
+      style: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        color: primaryDark,
+      ),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
-        prefixIcon: maxLines == 1 ? Icon(icon, color: textSecondary, size: 20) : null,
+        labelStyle: TextStyle(
+          color: textSecondary,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+        prefixIcon: maxLines == 1
+            ? Icon(icon, color: textSecondary, size: 20)
+            : null,
         filled: true,
         fillColor: bgColor,
         alignLabelWithHint: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 16,
+          horizontal: 16,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: cardBorder),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: primaryBlue, width: 1.5),
+        ),
       ),
     );
   }

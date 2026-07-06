@@ -1,6 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:gasan_port_tracker/Activities/Home/Home.dart';
+import 'package:gasan_port_tracker/Activities/MainNavigation.dart';
 import 'package:gasan_port_tracker/Activities/MDRRMO/EmergencyScreen.dart';
 import 'package:gasan_port_tracker/Dialogs/ClassicDialog.dart';
 import 'package:gasan_port_tracker/Dialogs/LoadingDialog.dart';
@@ -37,7 +37,9 @@ class _LoginSignupState extends State<LoginSignup> {
     super.initState();
     _termsAndPrivacyPolicyTextRecognition = TapGestureRecognizer()
       ..onTap = () {
-        _openLink("'https://sites.google.com/view/terms-conditions-aga-app/home'");
+        _openLink(
+          "'https://sites.google.com/view/terms-conditions-aga-app/home'",
+        );
       };
   }
 
@@ -53,7 +55,9 @@ class _LoginSignupState extends State<LoginSignup> {
       if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Could not open browser. Please try again.")),
+            const SnackBar(
+              content: Text("Could not open browser. Please try again."),
+            ),
           );
         }
       }
@@ -68,7 +72,9 @@ class _LoginSignupState extends State<LoginSignup> {
     final String? fullName = user?.userMetadata?['full_name'];
     final String? avatarUrl = user?.userMetadata?['avatar_url'];
     final String? userId = user?.id;
-    final String currentDate = Utility().getCurrentReadableDate("MMMM-dd-yyyy hh:mm a");
+    final String currentDate = Utility().getCurrentReadableDate(
+      "MMMM-dd-yyyy hh:mm a",
+    );
 
     final userData = {
       'user_name': fullName,
@@ -77,7 +83,7 @@ class _LoginSignupState extends State<LoginSignup> {
       'avatar_url': avatarUrl,
       'user_access': null,
       'user_registration_date': currentDate,
-      'user_status': null
+      'user_status': null,
     };
 
     await supabase.from("user_data").insert(userData);
@@ -100,261 +106,312 @@ class _LoginSignupState extends State<LoginSignup> {
 
   void _signIn() async {
     _loadingDialog.showLoadingDialog(context);
-    SupabaseAuthentication().signInWithGoogle((errorMessage, stacktrace) {
-      _loadingDialog.dismiss();
-      _classicDialog.setTitle("An error occurred!");
-      _classicDialog.setMessage("$errorMessage\n\n"
+    SupabaseAuthentication().signInWithGoogle(
+      (errorMessage, stacktrace) {
+        _loadingDialog.dismiss();
+        _classicDialog.setTitle("An error occurred!");
+        _classicDialog.setMessage(
+          "$errorMessage\n\n"
           "Stacktrace: \n"
-          "$stacktrace");
-      _classicDialog.setCancelable(false);
-      _classicDialog.setPositiveMessage("Close");
-      if(mounted){
-        _classicDialog.showOnButtonDialog(context, (){
-          _classicDialog.dismissDialog();
-        });
-      }
-      return;
-    }, (authResponse) async {
-      if (!context.mounted) return;
-
-      if (authResponse.user != null) {
-        if (await _userDataExist(authResponse.user!.id) == false) {
-          await _createUserData(authResponse.user);
-        }
-
+          "$stacktrace",
+        );
+        _classicDialog.setCancelable(false);
+        _classicDialog.setPositiveMessage("Close");
         if (mounted) {
+          _classicDialog.showOnButtonDialog(context, () {
+            _classicDialog.dismissDialog();
+          });
+        }
+        return;
+      },
+      (authResponse) async {
+        if (!context.mounted) return;
+
+        if (authResponse.user != null) {
+          if (await _userDataExist(authResponse.user!.id) == false) {
+            await _createUserData(authResponse.user);
+          }
+
+          if (mounted) {
+            _loadingDialog.dismiss();
+            SnackbarMessenger().showSnackbar(
+              context,
+              SnackbarMessenger.success,
+              "Welcome to AGA Gasan!",
+            );
+            MainNavigation.resetForNewSession();
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const MainNavigation()),
+            );
+          }
+        } else {
           _loadingDialog.dismiss();
           SnackbarMessenger().showSnackbar(
-              context, SnackbarMessenger.success, "Welcome to AGA Gasan!");
-          Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (context) => const Home()));
+            context,
+            SnackbarMessenger.failed,
+            "Sign in interrupted.",
+          );
         }
-      } else {
-        _loadingDialog.dismiss();
-        SnackbarMessenger().showSnackbar(
-            context, SnackbarMessenger.failed, "Sign in interrupted.");
-      }
-    });
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        backgroundColor: bgColor,
-        body: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
-            child: Stack(
-              children: [
-                // Background Decorative Circle
-                Positioned(
-                  top: -100,
-                  right: -50,
-                  child: CircleAvatar(
-                    radius: 150,
-                    backgroundColor: primaryGreen.withValues(alpha: 0.05),
-                  ),
+      backgroundColor: bgColor,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
+          child: Stack(
+            children: [
+              // Background Decorative Circle
+              Positioned(
+                top: -100,
+                right: -50,
+                child: CircleAvatar(
+                  radius: 150,
+                  backgroundColor: primaryGreen.withValues(alpha: 0.05),
                 ),
+              ),
 
-                // --- NEW: Floating Emergency Button ---
-                SafeArea(
-                  child: Align(
-                    alignment: Alignment.topRight,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFEF2F2), // Very Light Red
-                          foregroundColor: const Color(0xFFDC2626), // Alert Red
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            side: const BorderSide(color: Color(0xFFFECACA)), // Soft red border
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              // --- NEW: Floating Emergency Button ---
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(
+                          0xFFFEF2F2,
+                        ), // Very Light Red
+                        foregroundColor: const Color(0xFFDC2626), // Alert Red
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: const BorderSide(
+                            color: Color(0xFFFECACA),
+                          ), // Soft red border
                         ),
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const EmergencyScreen()),
-                          );
-                        },
-                        icon: const Icon(Icons.emergency_share_rounded, size: 18),
-                        label: const Text(
-                          "Emergency",
-                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 0.5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const EmergencyScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.emergency_share_rounded, size: 18),
+                      label: const Text(
+                        "Emergency",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          letterSpacing: 0.5,
                         ),
                       ),
                     ),
                   ),
                 ),
+              ),
 
-                // Main Content
-                SafeArea(
-                  child: Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 32.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // --- APP LOGO SECTION ---
-                          Container(
-                            height: 100,
-                            width: 100,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(color: slateBackground, width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: primaryGreen.withValues(alpha: 0.1),
-                                  blurRadius: 20,
-                                  offset: const Offset(0, 10),
-                                )
-                              ],
+              // Main Content
+              SafeArea(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // --- APP LOGO SECTION ---
+                        Container(
+                          height: 100,
+                          width: 100,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: slateBackground,
+                              width: 2,
                             ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(22),
-                              child: Center(
-                                child: Image.asset(ImageDirectory().getOfficialRoundedLogoPath(), width: 70, height: 70,),
+                            boxShadow: [
+                              BoxShadow(
+                                color: primaryGreen.withValues(alpha: 0.1),
+                                blurRadius: 20,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(22),
+                            child: Center(
+                              child: Image.asset(
+                                ImageDirectory().getOfficialRoundedLogoPath(),
+                                width: 70,
+                                height: 70,
                               ),
                             ),
                           ),
-                          const SizedBox(height: 24),
+                        ),
+                        const SizedBox(height: 24),
 
-                          // --- TYPOGRAPHY ---
-                          const Text(
-                            "AGA",
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF064E3B),
-                              letterSpacing: 1.5,
+                        // --- TYPOGRAPHY ---
+                        const Text(
+                          "AGA",
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF064E3B),
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          "Explore the heart of the Philippines",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: textSecondary,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+
+                        const SizedBox(height: 48),
+
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(24.0),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(
+                              color: slateBackground,
+                              width: 1.5,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            "Explore the heart of the Philippines",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: textSecondary,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-
-                          const SizedBox(height: 48),
-
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(24.0),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(28),
-                              border: Border.all(color: slateBackground, width: 1.5),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  "Welcome Back",
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: textPrimary,
-                                  ),
+                          child: Column(
+                            children: [
+                              Text(
+                                "Welcome Back",
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: textPrimary,
                                 ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  "Sign in to your account",
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                "Sign in to your account",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: textSecondary,
+                                ),
+                              ),
+                              const SizedBox(height: 32),
+
+                              // --- MODERN GOOGLE BUTTON ---
+                              SizedBox(
+                                width: double.infinity,
+                                height: 56,
+                                child: ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF1E293B),
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                  ),
+                                  icon: Image.asset(
+                                    "assets/google.png",
+                                    width: 22,
+                                    height: 22,
+                                  ),
+                                  label: const Text(
+                                    "Continue with Google",
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                  onPressed: () {
+                                    _signIn();
+                                  },
+                                ),
+                              ),
+
+                              // --- FIX: CLICKABLE TERMS AND PRIVACY POLICY ---
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 24.0,
+                                  bottom: 8.0,
+                                  left: 8.0,
+                                  right: 8.0,
+                                ),
+                                child: RichText(
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 14, color: textSecondary),
-                                ),
-                                const SizedBox(height: 32),
-
-                                // --- MODERN GOOGLE BUTTON ---
-                                SizedBox(
-                                  width: double.infinity,
-                                  height: 56,
-                                  child: ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF1E293B),
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
+                                  text: TextSpan(
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: textSecondary,
+                                      fontFamily: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall?.fontFamily,
                                     ),
-                                    icon: Image.asset(
-                                      "assets/google.png",
-                                      width: 22,
-                                      height: 22,
-                                    ),
-                                    label: const Text(
-                                      "Continue with Google",
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.2,
+                                    children: [
+                                      const TextSpan(
+                                        text:
+                                            "By logging in, you agree to our ",
                                       ),
-                                    ),
-                                    onPressed: () {
-                                      _signIn();
-                                    },
-                                  ),
-                                ),
-
-                                // --- FIX: CLICKABLE TERMS AND PRIVACY POLICY ---
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 24.0, bottom: 8.0, left: 8.0, right: 8.0),
-                                  child: RichText(
-                                    textAlign: TextAlign.center,
-                                    text: TextSpan(
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: textSecondary,
-                                        fontFamily: Theme.of(context).textTheme.bodySmall?.fontFamily,
-                                      ),
-                                      children: [
-                                        const TextSpan(text: "By logging in, you agree to our "),
-                                        TextSpan(
-                                          text: "terms and privacy policy",
-                                          style: TextStyle(
-                                            color: primaryGreen,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                          recognizer: _termsAndPrivacyPolicyTextRecognition,
+                                      TextSpan(
+                                        text: "terms and privacy policy",
+                                        style: TextStyle(
+                                          color: primaryGreen,
+                                          fontWeight: FontWeight.bold,
                                         ),
-                                        const TextSpan(text: "."),
-                                      ],
-                                    ),
+                                        recognizer:
+                                            _termsAndPrivacyPolicyTextRecognition,
+                                      ),
+                                      const TextSpan(text: "."),
+                                    ],
                                   ),
-                                )
-                              ],
-                            ),
+                                ),
+                              ),
+                            ],
                           ),
+                        ),
 
-                          const SizedBox(height: 40),
+                        const SizedBox(height: 40),
 
-                          // --- FOOTER ---
-                          Text(
-                            "Version ${Utility().getCurrentGlobalVersion()}",
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: textSecondary.withValues(alpha: 0.7),
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1,
-                            ),
+                        // --- FOOTER ---
+                        Text(
+                          "Version ${Utility().getCurrentGlobalVersion()}",
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: textSecondary.withValues(alpha: 0.7),
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1,
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-        )
+        ),
+      ),
     );
   }
 }

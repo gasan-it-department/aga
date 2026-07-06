@@ -35,6 +35,9 @@ class _ViewShopState extends State<ViewShop> {
 
   List<Map<String, dynamic>> _items = [];
   bool _isLoading = true;
+  bool _isShopVisible = false;
+  bool _visitCheckStarted = false;
+  bool _sellerLastActiveUpdated = false;
 
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounce;
@@ -48,8 +51,7 @@ class _ViewShopState extends State<ViewShop> {
     super.initState();
     ViewShop.openShops.add(widget.sellerId);
     _seller = Map<String, dynamic>.from(widget.sellerData);
-    _refreshSeller();
-    _fetchItems();
+    _refreshSeller().then((_) => _fetchItems());
   }
 
   @override
@@ -62,23 +64,171 @@ class _ViewShopState extends State<ViewShop> {
 
   Future<void> _refreshSeller() async {
     try {
-      final row = await _supabase.from('sellers').select().eq('seller_id', widget.sellerId).maybeSingle();
+      final row = await _supabase
+          .from('sellers')
+          .select()
+          .eq('seller_id', widget.sellerId)
+          .maybeSingle();
       if (row != null && mounted) {
-        setState(() => _seller = Map<String, dynamic>.from(row));
+        final seller = Map<String, dynamic>.from(row);
+        final currentUserId = _supabase.auth.currentUser?.id;
+        final isOwnStore =
+            currentUserId != null &&
+            seller['seller_user_id']?.toString() == currentUserId;
+        setState(() {
+          _seller = seller;
+          _isShopVisible = row['seller_store_status']?.toString() == 'visible';
+        });
+        if (isOwnStore) {
+          _updateSellerLastActive();
+        } else if (_isShopVisible) {
+          _recordShopVisit();
+        }
       }
     } catch (e) {
       debugPrint("Seller fetch error: $e");
     }
   }
 
+  Future<void> _updateSellerLastActive() async {
+    if (_sellerLastActiveUpdated || widget.sellerId.isEmpty) return;
+    _sellerLastActiveUpdated = true;
+    try {
+      await _supabase
+          .from('sellers')
+          .update({'seller_last_active': Utility().getCurrentMSEpochTime()})
+          .eq('seller_id', widget.sellerId);
+    } catch (e) {
+      debugPrint('Seller last active update failed: $e');
+    }
+  }
+
+  Future<void> _recordShopVisit() async {
+    if (_visitCheckStarted) return;
+    _visitCheckStarted = true;
+
+    final visitorId = _supabase.auth.currentUser?.id;
+    if (visitorId == null || visitorId.isEmpty || widget.sellerId.isEmpty) {
+      return;
+    }
+
+    try {
+      final latestVisit = await _supabase
+          .from('shop_visitor')
+          .select('visitor_visit_date')
+          .eq('visitor_id', visitorId)
+          .eq('visitor_store_id', widget.sellerId)
+          .order('visitor_visit_date', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      final now = Utility().getCurrentMSEpochTime();
+      final latestVisitDate = num.tryParse(
+        latestVisit?['visitor_visit_date']?.toString() ?? '',
+      );
+      const cooldownMilliseconds = 10 * 60 * 1000;
+
+      if (latestVisitDate != null &&
+          now - latestVisitDate.toInt() < cooldownMilliseconds) {
+        return;
+      }
+
+      await _supabase.from('shop_visitor').insert({
+        'visit_id': 'VISIT_${Utility().generateUniqueID()}',
+        'visitor_id': visitorId,
+        'visitor_store_id': widget.sellerId,
+        'visitor_visit_date': now,
+      });
+    } catch (e) {
+      debugPrint('Shop visit tracking failed: $e');
+    }
+  }
+
+  bool _isItemOutOfStock(Map<String, dynamic> item) {
+    final vars = item['item_variations'];
+    if (vars is List && vars.isNotEmpty) {
+      for (final v in vars) {
+        if (v is Map) {
+          final stock = num.tryParse(v['stock']?.toString() ?? '0') ?? 0;
+          if (stock < 0 || stock > 0) return false;
+        }
+      }
+      return true;
+    }
+    final raw = item['item_stocks'];
+    if (raw == null) return false;
+    final stock = raw is num ? raw : num.tryParse(raw.toString());
+    return stock != null && stock == 0;
+  }
+
+  List<Map<String, dynamic>> _sellableVariations(Map<String, dynamic> item) {
+    final vars = item['item_variations'];
+    if (vars is! List) return const [];
+    return vars.whereType<Map>().map((v) => Map<String, dynamic>.from(v)).where(
+      (variation) {
+        final stock = num.tryParse(variation['stock']?.toString() ?? '0') ?? 0;
+        final price = num.tryParse(variation['price']?.toString() ?? '');
+        return (stock < 0 || stock > 0) && price != null;
+      },
+    ).toList();
+  }
+
+  num _displayPrice(Map<String, dynamic> item) {
+    final variations = _sellableVariations(item);
+    if (variations.isNotEmpty) {
+      variations.sort((a, b) {
+        final aPrice = num.tryParse(a['price']?.toString() ?? '0') ?? 0;
+        final bPrice = num.tryParse(b['price']?.toString() ?? '0') ?? 0;
+        return aPrice.compareTo(bPrice);
+      });
+      return num.tryParse(variations.first['price']?.toString() ?? '0') ?? 0;
+    }
+
+    final rawPrice = item['item_price'];
+    return rawPrice is num
+        ? rawPrice
+        : (num.tryParse(rawPrice?.toString() ?? '0') ?? 0);
+  }
+
+  num _effectiveStock(Map<String, dynamic> item) {
+    final variations = _sellableVariations(item);
+    if (variations.isNotEmpty) {
+      if (variations.any((variation) {
+        final stock = num.tryParse(variation['stock']?.toString() ?? '0') ?? 0;
+        return stock < 0;
+      })) {
+        return -1;
+      }
+      return variations.fold<num>(0, (sum, variation) {
+        final stock = num.tryParse(variation['stock']?.toString() ?? '0') ?? 0;
+        return sum + stock;
+      });
+    }
+
+    final raw = item['item_stocks'];
+    return raw is num ? raw : (num.tryParse(raw?.toString() ?? '0') ?? 0);
+  }
+
   Future<void> _fetchItems() async {
     setState(() => _isLoading = true);
+    if (!_isShopVisible) {
+      if (mounted) {
+        setState(() {
+          _items = [];
+          _isLoading = false;
+        });
+      }
+      return;
+    }
     try {
       var query = _supabase
           .from('store_items')
-          .select('*, sellers(seller_store_name, seller_logo)')
+          .select(
+            '*, sellers!inner(seller_store_name, seller_logo, seller_store_status)',
+          )
           .eq('item_seller_id', widget.sellerId)
-          .eq('item_available', true);
+          .eq('item_available', true)
+          .eq('sellers.seller_store_status', 'visible');
 
       if (_searchQuery.trim().isNotEmpty) {
         final q = _searchQuery.trim().replaceAll(',', ' ');
@@ -86,30 +236,24 @@ class _ViewShopState extends State<ViewShop> {
       }
 
       if (_selectedFilter != 'All') {
-        query = query.or('item_category.ilike.%$_selectedFilter%,item_type.ilike.%$_selectedFilter%');
+        query = query.or(
+          'item_category.ilike.%$_selectedFilter%,item_type.ilike.%$_selectedFilter%',
+        );
       }
 
-      debugPrint("ViewShop fetch seller=${widget.sellerId} filter=$_selectedFilter q=$_searchQuery");
+      debugPrint(
+        "ViewShop fetch seller=${widget.sellerId} filter=$_selectedFilter q=$_searchQuery",
+      );
       final data = await query.order('item_name', ascending: true);
       debugPrint("ViewShop fetched ${data.length} items");
       final list = List<Map<String, dynamic>>.from(data);
-      bool outOfStock(Map<String, dynamic> m) {
-        final vars = m['item_variations'];
-        if (vars is List && vars.isNotEmpty) {
-          for (final v in vars) {
-            if (v is Map && (num.tryParse(v['stock']?.toString() ?? '0') ?? 0) > 0) return false;
-          }
-          return true;
-        }
-        final raw = m['item_stocks'];
-        final s = raw is int ? raw : (int.tryParse(raw?.toString() ?? '0') ?? 0);
-        return s <= 0;
-      }
       list.sort((a, b) {
-        final ao = outOfStock(a) ? 1 : 0;
-        final bo = outOfStock(b) ? 1 : 0;
+        final ao = _isItemOutOfStock(a) ? 1 : 0;
+        final bo = _isItemOutOfStock(b) ? 1 : 0;
         if (ao != bo) return ao.compareTo(bo);
-        return (a['item_name']?.toString() ?? '').toLowerCase().compareTo((b['item_name']?.toString() ?? '').toLowerCase());
+        return (a['item_name']?.toString() ?? '').toLowerCase().compareTo(
+          (b['item_name']?.toString() ?? '').toLowerCase(),
+        );
       });
       if (mounted) {
         setState(() => _items = list);
@@ -155,20 +299,142 @@ class _ViewShopState extends State<ViewShop> {
       final mun = addr['municipality']?.toString();
       final prov = addr['province']?.toString();
       final zip = addr['zip_code']?.toString();
-      final parts = [mun, prov].where((s) => s != null && s.isNotEmpty).join(", ");
+      final parts = [
+        mun,
+        prov,
+      ].where((s) => s != null && s.isNotEmpty).join(", ");
       return zip != null && zip.isNotEmpty ? "$parts • $zip" : parts;
     }
     if (addr is String && addr.isNotEmpty) {
       try {
         final decoded = jsonDecode(addr);
         if (decoded is Map) {
-          return [decoded['municipality'], decoded['province']]
-              .where((s) => s != null && s.toString().isNotEmpty).join(", ");
+          return [
+            decoded['municipality'],
+            decoded['province'],
+          ].where((s) => s != null && s.toString().isNotEmpty).join(", ");
         }
       } catch (_) {}
       return addr;
     }
     return "";
+  }
+
+  String? _lastActiveLabel() {
+    final raw = _seller['seller_last_active'];
+    final value = raw is num ? raw : num.tryParse(raw?.toString() ?? '');
+    if (value == null || value <= 0) return null;
+
+    var milliseconds = value.toInt();
+    if (milliseconds < 1000000000000) {
+      milliseconds *= 1000;
+    }
+
+    final activeAt = DateTime.fromMillisecondsSinceEpoch(milliseconds);
+    final elapsed = DateTime.now().difference(activeAt);
+    if (elapsed.isNegative) return 'Active just now';
+
+    if (elapsed.inSeconds < 60) {
+      final seconds = elapsed.inSeconds <= 0 ? 1 : elapsed.inSeconds;
+      return 'Active ${seconds}s ago';
+    }
+    if (elapsed.inMinutes < 60) {
+      return 'Active ${elapsed.inMinutes}min ago';
+    }
+    if (elapsed.inHours < 24) {
+      return 'Active ${elapsed.inHours}h ago';
+    }
+    if (elapsed.inDays < 30) {
+      return 'Active ${elapsed.inDays} day${elapsed.inDays == 1 ? '' : 's'} ago';
+    }
+    if (elapsed.inDays < 365) {
+      final months = (elapsed.inDays / 30).floor().clamp(1, 11);
+      return 'Active $months month${months == 1 ? '' : 's'} ago';
+    }
+    final years = (elapsed.inDays / 365).floor();
+    return 'Active $years year${years == 1 ? '' : 's'} ago';
+  }
+
+  Map<String, Map<String, dynamic>> _operatingHours() {
+    const days = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    final raw = _seller['seller_operating_hours'];
+    Map source = {};
+    if (raw is Map) {
+      source = raw;
+    } else if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) source = decoded;
+      } catch (_) {}
+    }
+    return {
+      for (final day in days)
+        if (source[day] is Map) day: Map<String, dynamic>.from(source[day]),
+    };
+  }
+
+  String _todayName() {
+    const days = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    return days[DateTime.now().weekday - 1];
+  }
+
+  int? _minutesOf(String? value) {
+    if (value == null || !value.contains(':')) return null;
+    final parts = value.split(':');
+    final hour = int.tryParse(parts[0]);
+    final minute = parts.length > 1 ? int.tryParse(parts[1]) : 0;
+    if (hour == null || minute == null) return null;
+    return hour * 60 + minute;
+  }
+
+  bool _isOpenNow(Map<String, dynamic> today) {
+    if (today['closed'] == true) return false;
+    final open = _minutesOf(today['open']?.toString());
+    final close = _minutesOf(today['close']?.toString());
+    if (open == null || close == null) return false;
+    final now = DateTime.now();
+    final current = now.hour * 60 + now.minute;
+    if (close < open) {
+      return current >= open || current <= close;
+    }
+    return current >= open && current <= close;
+  }
+
+  String _format12Hour(String? value) {
+    if (value == null || !value.contains(':')) return '--';
+    final parts = value.split(':');
+    final hour = int.tryParse(parts[0]);
+    final minute = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+    if (hour == null || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      return '--';
+    }
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour % 12 == 0 ? 12 : hour % 12;
+    return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
+  }
+
+  String _hoursSummary(Map<String, Map<String, dynamic>> hours) {
+    if (hours.isEmpty) return '';
+    final today = hours[_todayName()];
+    if (today == null) return 'Closed now';
+    if (today['closed'] == true) return 'Closed now';
+    return _isOpenNow(today) ? 'Open now' : 'Closed now';
   }
 
   Future<void> _launch(String url) async {
@@ -179,69 +445,161 @@ class _ViewShopState extends State<ViewShop> {
     }
   }
 
+  Future<void> _openDirections() async {
+    final coords = _seller['seller_store_coordinates'];
+    String destination = _addressLine();
+    if (coords is Map &&
+        coords['latitude'] != null &&
+        coords['longitude'] != null) {
+      destination = '${coords['latitude']},${coords['longitude']}';
+    } else if (coords is String && coords.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(coords);
+        if (decoded is Map &&
+            decoded['latitude'] != null &&
+            decoded['longitude'] != null) {
+          destination = '${decoded['latitude']},${decoded['longitude']}';
+        }
+      } catch (_) {}
+    }
+    if (destination.isEmpty) return;
+    await _launch(
+      'https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent(destination)}',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: bgColor,
-      body: LayoutBuilder(builder: (context, constraints) {
-        final double w = constraints.maxWidth;
-        final int crossAxis = w >= 1400 ? 5 : w >= 1100 ? 4 : w >= 800 ? 3 : 2;
-        final double maxContent = w >= 1100 ? 1280 : double.infinity;
-
-        return Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxContent),
-            child: RefreshIndicator(
-              color: primaryBlue,
-              onRefresh: () async {
-                await _refreshSeller();
-                await _fetchItems();
-              },
-              child: CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                slivers: [
-                  _buildSliverAppBar(),
-                  SliverToBoxAdapter(child: _buildShopHeader()),
-                  SliverToBoxAdapter(child: _buildSearchAndFilterBar()),
-                  SliverToBoxAdapter(child: _buildResultsHeader()),
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-                    sliver: _isLoading
-                        ? const SliverFillRemaining(
-                            hasScrollBody: false, child: Center(child: CircularProgressIndicator()))
-                        : _items.isEmpty
-                            ? SliverFillRemaining(hasScrollBody: false, child: _buildEmpty())
-                            : _buildItemsGrid(crossAxis),
+    if (!_isLoading && !_isShopVisible) {
+      return Scaffold(
+        backgroundColor: bgColor,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          foregroundColor: primaryDark,
+          title: const Text(
+            'Shop unavailable',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.storefront_outlined, size: 64, color: textSecondary),
+                const SizedBox(height: 16),
+                Text(
+                  'This shop is currently unavailable.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: primaryDark,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Its profile and products are hidden from the public.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: textSecondary),
+                ),
+              ],
             ),
           ),
-        );
-      }),
+        ),
+      );
+    }
+    return Scaffold(
+      backgroundColor: bgColor,
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final double w = constraints.maxWidth;
+          final int crossAxis = w >= 1400
+              ? 5
+              : w >= 1100
+              ? 4
+              : w >= 800
+              ? 3
+              : 2;
+          final double maxContent = w >= 1100 ? 1280 : double.infinity;
+
+          return Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxContent),
+              child: RefreshIndicator(
+                color: primaryBlue,
+                onRefresh: () async {
+                  await _refreshSeller();
+                  await _fetchItems();
+                },
+                child: CustomScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics(),
+                  ),
+                  slivers: [
+                    _buildSliverAppBar(),
+                    SliverToBoxAdapter(child: _buildShopHeader()),
+                    SliverToBoxAdapter(child: _buildSearchAndFilterBar()),
+                    SliverToBoxAdapter(child: _buildResultsHeader()),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+                      sliver: _isLoading
+                          ? const SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          : _items.isEmpty
+                          ? SliverFillRemaining(
+                              hasScrollBody: false,
+                              child: _buildEmpty(),
+                            )
+                          : _buildItemsGrid(crossAxis),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
   Future<void> _messageSeller() async {
     final chat = ChatService();
     if (chat.currentUserId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please sign in to chat.")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Please sign in to chat.")));
       return;
     }
     if (_seller['seller_user_id']?.toString() == chat.currentUserId) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("This is your own store.")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("This is your own store.")));
       return;
     }
     final String title = _seller['seller_store_name']?.toString() ?? 'Store';
     try {
-      final convo = await chat.getOrCreateConversation(sellerId: widget.sellerId);
-      if (convo == null || !mounted) return;
+      final convo = await chat.findConversation(sellerId: widget.sellerId);
+      if (!mounted) return;
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => ChatThread(conversationId: convo['conversation_id'].toString(), title: title)),
+        MaterialPageRoute(
+          builder: (_) => ChatThread(
+            conversationId: convo?['conversation_id']?.toString(),
+            sellerId: widget.sellerId,
+            title: title,
+          ),
+        ),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to open chat: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Failed to open chat: $e")));
+      }
     }
   }
 
@@ -255,29 +613,43 @@ class _ViewShopState extends State<ViewShop> {
           children: [
             Icon(Icons.flag_rounded, color: priceColor),
             const SizedBox(width: 8),
-            const Text("Report Shop", style: TextStyle(fontWeight: FontWeight.w900)),
+            const Text(
+              "Report Shop",
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Tell us why you're reporting this shop:", style: TextStyle(color: textSecondary, fontSize: 13)),
+            Text(
+              "Tell us why you're reporting this shop:",
+              style: TextStyle(color: textSecondary, fontSize: 13),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: reasonCtrl,
               maxLines: 4,
               decoration: InputDecoration(
                 hintText: "Describe the issue...",
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: priceColor, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: priceColor,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () async {
               final reason = reasonCtrl.text.trim();
               if (reason.isEmpty) return;
@@ -293,7 +665,9 @@ class _ViewShopState extends State<ViewShop> {
                 });
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Report submitted. Thank you.")),
+                    const SnackBar(
+                      content: Text("Report submitted. Thank you."),
+                    ),
                   );
                 }
               } catch (e) {
@@ -329,7 +703,10 @@ class _ViewShopState extends State<ViewShop> {
         TextButton.icon(
           onPressed: _reportShop,
           icon: Icon(Icons.flag_rounded, color: priceColor, size: 18),
-          label: Text("Report", style: TextStyle(color: priceColor, fontWeight: FontWeight.w800)),
+          label: Text(
+            "Report",
+            style: TextStyle(color: priceColor, fontWeight: FontWeight.w800),
+          ),
         ),
         const SizedBox(width: 4),
       ],
@@ -345,6 +722,8 @@ class _ViewShopState extends State<ViewShop> {
     final contact = _seller['seller_contact_number']?.toString();
     final email = _seller['seller_email_address']?.toString();
     final messenger = _seller['seller_messenger_link']?.toString();
+    final lastActive = _lastActiveLabel();
+    final operatingHours = _operatingHours();
 
     final cover = _coverProvider();
 
@@ -384,118 +763,207 @@ class _ViewShopState extends State<ViewShop> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  boxShadow: [
-                    BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 12, offset: const Offset(0, 6)),
-                  ],
-                ),
-                padding: const EdgeInsets.all(3),
-                child: CircleAvatar(
-                  radius: 36,
-                  backgroundColor: cardBorder,
-                  backgroundImage: logo,
-                  child: logo == null ? Icon(Icons.storefront_rounded, color: textSecondary, size: 32) : null,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 20, letterSpacing: -0.3),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 12,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
                     ),
-                    if (type != null && type.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
+                    padding: const EdgeInsets.all(3),
+                    child: CircleAvatar(
+                      radius: 36,
+                      backgroundColor: cardBorder,
+                      backgroundImage: logo,
+                      child: logo == null
+                          ? Icon(
+                              Icons.storefront_rounded,
+                              color: textSecondary,
+                              size: 32,
+                            )
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
+                            letterSpacing: -0.3,
+                          ),
                         ),
-                        child: Text(
-                          type.toUpperCase(),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 0.8),
-                        ),
-                      ),
-                    ],
-                    if (address.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.location_on_rounded, color: Colors.white70, size: 14),
-                          const SizedBox(width: 4),
-                          Expanded(
+                        if (type != null && type.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.35),
+                              ),
+                            ),
                             child: Text(
-                              address,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: Colors.white.withValues(alpha: 0.92), fontSize: 12, fontWeight: FontWeight.w600),
+                              type.toUpperCase(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 10,
+                                letterSpacing: 0.8,
+                              ),
                             ),
                           ),
                         ],
+                        if (address.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.location_on_rounded,
+                                color: Colors.white70,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  address,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.92),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (desc.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                Text(
+                  desc,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _statPill(
+                    Icons.inventory_2_rounded,
+                    "${_items.length} items",
+                  ),
+                  _statPill(Icons.verified_rounded, "Verified"),
+                  if (lastActive != null)
+                    _statPill(Icons.access_time_rounded, lastActive),
+                ],
+              ),
+              if (operatingHours.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _buildOperatingHoursStatus(operatingHours),
+              ],
+              _buildPaymentMethods(),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  if (_seller['seller_store_coordinates'] != null ||
+                      address.isNotEmpty)
+                    Expanded(
+                      child: _contactBtn(
+                        Icons.directions_rounded,
+                        "Directions",
+                        _openDirections,
                       ),
-                    ],
-                  ],
+                    ),
+                  if ((_seller['seller_store_coordinates'] != null ||
+                          address.isNotEmpty) &&
+                      contact != null &&
+                      contact.isNotEmpty)
+                    const SizedBox(width: 8),
+                  if (contact != null && contact.isNotEmpty)
+                    Expanded(
+                      child: _contactBtn(
+                        Icons.call_rounded,
+                        "Call",
+                        () => _launch("tel:$contact"),
+                      ),
+                    ),
+                  if (contact != null &&
+                      contact.isNotEmpty &&
+                      (messenger != null && messenger.isNotEmpty))
+                    const SizedBox(width: 8),
+                  if (messenger != null && messenger.isNotEmpty)
+                    Expanded(
+                      child: _contactBtn(
+                        Icons.chat_bubble_rounded,
+                        "Message",
+                        () => _launch(messenger),
+                      ),
+                    ),
+                  if ((contact == null || contact.isEmpty) &&
+                      (messenger == null || messenger.isEmpty) &&
+                      (email != null && email.isNotEmpty))
+                    Expanded(
+                      child: _contactBtn(
+                        Icons.email_rounded,
+                        "Email",
+                        () => _launch("mailto:$email"),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _messageSeller,
+                  icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
+                  label: const Text(
+                    "Message Seller",
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: primaryBlue,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
               ),
-            ],
-          ),
-          if (desc.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Text(
-              desc,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.92), fontSize: 13, height: 1.45),
-            ),
-          ],
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              _statPill(Icons.inventory_2_rounded, "${_items.length} items"),
-              const SizedBox(width: 8),
-              _statPill(Icons.verified_rounded, "Verified"),
-            ],
-          ),
-          _buildPaymentMethods(),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              if (contact != null && contact.isNotEmpty)
-                Expanded(child: _contactBtn(Icons.call_rounded, "Call", () => _launch("tel:$contact"))),
-              if (contact != null && contact.isNotEmpty && (messenger != null && messenger.isNotEmpty)) const SizedBox(width: 8),
-              if (messenger != null && messenger.isNotEmpty)
-                Expanded(child: _contactBtn(Icons.chat_bubble_rounded, "Message", () => _launch(messenger))),
-              if ((contact == null || contact.isEmpty) && (messenger == null || messenger.isEmpty) && (email != null && email.isNotEmpty))
-                Expanded(child: _contactBtn(Icons.email_rounded, "Email", () => _launch("mailto:$email"))),
-            ],
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _messageSeller,
-              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 18),
-              label: const Text("Message Seller", style: TextStyle(fontWeight: FontWeight.w800)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: primaryBlue,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 13),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-          ),
             ],
           ),
         ),
@@ -506,20 +974,28 @@ class _ViewShopState extends State<ViewShop> {
   List<String> _paymentMethodsList() {
     final raw = _seller['seller_payment_method'];
     List<dynamic> list = [];
-    if (raw is List) list = raw;
-    else if (raw is String && raw.isNotEmpty) {
-      try { list = jsonDecode(raw); } catch (_) {}
+    if (raw is List) {
+      list = raw;
+    } else if (raw is String && raw.isNotEmpty) {
+      try {
+        list = jsonDecode(raw);
+      } catch (_) {}
     }
     return list.map((e) => e.toString()).toList();
   }
 
   IconData _paymentIcon(String m) {
     switch (m) {
-      case "GCash": return Icons.account_balance_wallet_rounded;
-      case "Maya": return Icons.credit_card_rounded;
-      case "Cash on Delivery": return Icons.local_shipping_rounded;
-      case "In-Store Payment": return Icons.point_of_sale_rounded;
-      default: return Icons.payments_rounded;
+      case "GCash":
+        return Icons.account_balance_wallet_rounded;
+      case "Maya":
+        return Icons.credit_card_rounded;
+      case "Cash on Delivery":
+        return Icons.local_shipping_rounded;
+      case "In-Store Payment":
+        return Icons.point_of_sale_rounded;
+      default:
+        return Icons.payments_rounded;
     }
   }
 
@@ -533,34 +1009,291 @@ class _ViewShopState extends State<ViewShop> {
         children: [
           Row(
             children: [
-              const Icon(Icons.payments_rounded, color: Colors.white70, size: 14),
+              const Icon(
+                Icons.payments_rounded,
+                color: Colors.white70,
+                size: 14,
+              ),
               const SizedBox(width: 6),
-              Text("ACCEPTED PAYMENTS",
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontWeight: FontWeight.w800, fontSize: 10.5, letterSpacing: 0.8)),
+              Text(
+                "ACCEPTED PAYMENTS",
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 10.5,
+                  letterSpacing: 0.8,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 6,
             runSpacing: 6,
-            children: methods.map((m) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(_paymentIcon(m), color: accentBlue, size: 13),
-                  const SizedBox(width: 5),
-                  Text(m, style: TextStyle(color: accentBlue, fontWeight: FontWeight.w800, fontSize: 11.5)),
-                ],
-              ),
-            )).toList(),
+            children: methods
+                .map(
+                  (m) => Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(_paymentIcon(m), color: accentBlue, size: 13),
+                        const SizedBox(width: 5),
+                        Text(
+                          m,
+                          style: TextStyle(
+                            color: accentBlue,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+                .toList(),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildOperatingHoursStatus(Map<String, Map<String, dynamic>> hours) {
+    final today = _todayName();
+    final todayHours = hours[today];
+    final isOpen = todayHours != null && _isOpenNow(todayHours);
+    final status = _hoursSummary(hours);
+
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => _showOperatingHoursSheet(hours),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: (isOpen ? Colors.greenAccent : Colors.white)
+                      .withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.schedule_rounded,
+                  color: isOpen ? Colors.greenAccent : Colors.white,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'STORE STATUS',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.9,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      status,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                'Hours',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.keyboard_arrow_right_rounded,
+                color: Colors.white.withValues(alpha: 0.88),
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showOperatingHoursSheet(Map<String, Map<String, dynamic>> hours) {
+    final today = _todayName();
+    final todayHours = hours[today];
+    final isOpen = todayHours != null && _isOpenNow(todayHours);
+
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.62,
+          minChildSize: 0.38,
+          maxChildSize: 0.88,
+          builder: (context, scrollController) {
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: cardBorder,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color:
+                              (isOpen
+                                      ? const Color(0xFF16A34A)
+                                      : const Color(0xFFEF4444))
+                                  .withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          isOpen
+                              ? Icons.storefront_rounded
+                              : Icons.storefront_outlined,
+                          color: isOpen
+                              ? const Color(0xFF16A34A)
+                              : const Color(0xFFEF4444),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isOpen ? 'Open now' : 'Closed now',
+                              style: TextStyle(
+                                color: primaryDark,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Operating hours',
+                              style: TextStyle(
+                                color: textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  ...hours.entries.map((entry) {
+                    final day = entry.key;
+                    final value = entry.value;
+                    final active = day == today;
+                    final closed = value['closed'] == true;
+                    final label = closed
+                        ? 'Closed'
+                        : '${_format12Hour(value['open']?.toString())} - ${_format12Hour(value['close']?.toString())}';
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: active
+                            ? accentBlue.withValues(alpha: 0.08)
+                            : bgColor,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: active
+                              ? accentBlue.withValues(alpha: 0.26)
+                              : cardBorder,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              active ? '$day (Today)' : day,
+                              style: TextStyle(
+                                color: primaryDark,
+                                fontSize: 13.5,
+                                fontWeight: active
+                                    ? FontWeight.w900
+                                    : FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            label,
+                            style: TextStyle(
+                              color: closed
+                                  ? const Color(0xFFEF4444)
+                                  : const Color(0xFF16A34A),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -576,7 +1309,14 @@ class _ViewShopState extends State<ViewShop> {
         children: [
           Icon(icon, color: Colors.white, size: 13),
           const SizedBox(width: 6),
-          Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11.5)),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              fontSize: 11.5,
+            ),
+          ),
         ],
       ),
     );
@@ -596,7 +1336,14 @@ class _ViewShopState extends State<ViewShop> {
             children: [
               Icon(icon, color: accentBlue, size: 16),
               const SizedBox(width: 6),
-              Text(label, style: TextStyle(color: accentBlue, fontWeight: FontWeight.w900, fontSize: 13)),
+              Text(
+                label,
+                style: TextStyle(
+                  color: accentBlue,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                ),
+              ),
             ],
           ),
         ),
@@ -620,16 +1367,30 @@ class _ViewShopState extends State<ViewShop> {
               decoration: InputDecoration(
                 isDense: true,
                 hintText: "Search this shop...",
-                hintStyle: TextStyle(color: textSecondary, fontWeight: FontWeight.w500),
+                hintStyle: TextStyle(
+                  color: textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
                 prefixIcon: Padding(
                   padding: const EdgeInsets.only(left: 12, right: 8),
-                  child: Icon(Icons.search_rounded, color: primaryBlue, size: 20),
+                  child: Icon(
+                    Icons.search_rounded,
+                    color: primaryBlue,
+                    size: 20,
+                  ),
                 ),
-                prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+                prefixIconConstraints: const BoxConstraints(
+                  minWidth: 0,
+                  minHeight: 0,
+                ),
                 suffixIcon: _searchQuery.isEmpty
                     ? null
                     : IconButton(
-                        icon: Icon(Icons.close_rounded, color: textSecondary, size: 18),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: textSecondary,
+                          size: 18,
+                        ),
                         onPressed: () {
                           _searchController.clear();
                           setState(() => _searchQuery = '');
@@ -638,13 +1399,22 @@ class _ViewShopState extends State<ViewShop> {
                       ),
                 filled: true,
                 fillColor: bgColor,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 10,
+                ),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: cardBorder)),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: cardBorder),
+                ),
                 enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: cardBorder)),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: cardBorder),
+                ),
                 focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(color: primaryBlue, width: 1.5),
+                ),
               ),
             ),
           ),
@@ -654,7 +1424,9 @@ class _ViewShopState extends State<ViewShop> {
             child: Row(
               children: [
                 _buildFilterChip('All'),
-                ...MarketCategories.categories.map((c) => _buildFilterChip(c['label'].toString())),
+                ...MarketCategories.categories.map(
+                  (c) => _buildFilterChip(c['label'].toString()),
+                ),
               ],
             ),
           ),
@@ -701,11 +1473,33 @@ class _ViewShopState extends State<ViewShop> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
       child: Row(
         children: [
-          Container(width: 3, height: 16, decoration: BoxDecoration(color: priceColor, borderRadius: BorderRadius.circular(2))),
+          Container(
+            width: 3,
+            height: 16,
+            decoration: BoxDecoration(
+              color: priceColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
           const SizedBox(width: 8),
-          Text("PRODUCTS", style: TextStyle(fontWeight: FontWeight.w900, color: primaryDark, fontSize: 13, letterSpacing: 1)),
+          Text(
+            "PRODUCTS",
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              color: primaryDark,
+              fontSize: 13,
+              letterSpacing: 1,
+            ),
+          ),
           const Spacer(),
-          Text("${_items.length} ${_items.length == 1 ? 'item' : 'items'}", style: TextStyle(color: textSecondary, fontWeight: FontWeight.w700, fontSize: 12)),
+          Text(
+            "${_items.length} ${_items.length == 1 ? 'item' : 'items'}",
+            style: TextStyle(
+              color: textSecondary,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
         ],
       ),
     );
@@ -717,9 +1511,20 @@ class _ViewShopState extends State<ViewShop> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.inventory_2_outlined, size: 64, color: textSecondary.withValues(alpha: 0.5)),
+          Icon(
+            Icons.inventory_2_outlined,
+            size: 64,
+            color: textSecondary.withValues(alpha: 0.5),
+          ),
           const SizedBox(height: 12),
-          Text("No items found", style: TextStyle(fontWeight: FontWeight.w800, color: primaryDark, fontSize: 16)),
+          Text(
+            "No items found",
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: primaryDark,
+              fontSize: 16,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             _searchQuery.isNotEmpty || _selectedFilter != 'All'
@@ -738,17 +1543,21 @@ class _ViewShopState extends State<ViewShop> {
       child: MasonryGrid(
         crossAxisCount: crossAxis,
         spacing: 10,
-        children: [for (int i = 0; i < _items.length; i++) _buildProductCard(_items[i], i)],
+        children: [
+          for (int i = 0; i < _items.length; i++)
+            _buildProductCard(_items[i], i),
+        ],
       ),
     );
   }
 
   Widget _buildProductCard(Map<String, dynamic> item, [int index = 0]) {
     final name = item['item_name']?.toString() ?? 'Item';
-    final price = Utility().formatPrice(item['item_price']);
-    final stocks = item['item_stocks'];
-    final lowStock = stocks is num && stocks > 0 && stocks <= 5;
-    final outOfStock = stocks is num && stocks == 0;
+    final price = Utility().formatPrice(_displayPrice(item));
+    final totalStock = _effectiveStock(item);
+    final stockNotApplicable = totalStock < 0;
+    final lowStock = !stockNotApplicable && totalStock > 0 && totalStock <= 5;
+    final outOfStock = _isItemOutOfStock(item);
 
     String? imageUrl;
     final raw = item['item_images'];
@@ -770,14 +1579,21 @@ class _ViewShopState extends State<ViewShop> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(13),
+                ),
                 child: AspectRatio(
                   aspectRatio: 1,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       if (imageUrl != null)
-                        Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _imgFallback())
+                        Image.network(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) =>
+                              _imgFallback(),
+                        )
                       else
                         _imgFallback(),
                       if (outOfStock)
@@ -786,7 +1602,12 @@ class _ViewShopState extends State<ViewShop> {
                           alignment: Alignment.center,
                           child: const Text(
                             "OUT OF STOCK",
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1),
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                              letterSpacing: 1,
+                            ),
                           ),
                         ),
                     ],
@@ -798,12 +1619,36 @@ class _ViewShopState extends State<ViewShop> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: primaryDark, fontSize: 13, height: 1.25)),
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: primaryDark,
+                        fontSize: 13,
+                        height: 1.25,
+                      ),
+                    ),
                     const SizedBox(height: 6),
-                    Text("₱$price", style: TextStyle(color: priceColor, fontWeight: FontWeight.w900, fontSize: 15)),
+                    Text(
+                      "₱$price",
+                      style: TextStyle(
+                        color: priceColor,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                      ),
+                    ),
                     if (lowStock) ...[
                       const SizedBox(height: 4),
-                      Text("Only $stocks left", style: TextStyle(color: priceColor, fontWeight: FontWeight.w700, fontSize: 10.5)),
+                      Text(
+                        "Only $totalStock left",
+                        style: TextStyle(
+                          color: priceColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 10.5,
+                        ),
+                      ),
                     ],
                   ],
                 ),
@@ -818,7 +1663,11 @@ class _ViewShopState extends State<ViewShop> {
   Widget _imgFallback() {
     return Container(
       color: bgColor,
-      child: Icon(Icons.image_outlined, color: textSecondary.withValues(alpha: 0.5), size: 36),
+      child: Icon(
+        Icons.image_outlined,
+        color: textSecondary.withValues(alpha: 0.5),
+        size: 36,
+      ),
     );
   }
 }

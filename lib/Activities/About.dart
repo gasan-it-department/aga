@@ -1,4 +1,8 @@
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:universal_html/html.dart' as html;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 import 'package:gasan_port_tracker/Database/SupabaseUtility.dart';
@@ -341,7 +345,7 @@ class _VersionTapState extends State<_VersionTap> {
                 onPressed: () async {
                   await SupabaseUtility().setDeveloperMode(false);
                   if (ctx.mounted) Navigator.pop(ctx);
-                  _showRestartDialog("Developer mode disabled.");
+                  _applyModeShift();
                 },
                 child: const Text("Disable", style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w800)),
               ),
@@ -359,7 +363,7 @@ class _VersionTapState extends State<_VersionTap> {
                 if (codeCtrl.text.trim() == SupabaseUtility.developerAccessCode) {
                   await SupabaseUtility().setDeveloperMode(true);
                   if (ctx.mounted) Navigator.pop(ctx);
-                  _showRestartDialog("Developer mode enabled.");
+                  _applyModeShift();
                 } else {
                   setLocal(() => error = "Invalid access code.");
                 }
@@ -370,6 +374,20 @@ class _VersionTapState extends State<_VersionTap> {
         ),
       ),
     );
+  }
+
+  Future<void> _applyModeShift() async {
+    if (kIsWeb) {
+      html.window.location.reload();
+      return;
+    }
+
+    if (Platform.isAndroid) {
+      await SystemNavigator.pop();
+      return;
+    }
+
+    _showRestartDialog("Environment mode changed.");
   }
 
   void _showRestartDialog(String message) {

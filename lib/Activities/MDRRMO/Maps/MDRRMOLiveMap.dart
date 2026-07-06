@@ -297,7 +297,7 @@ class _MDRRMOLiveMapState extends State<MDRRMOLiveMap> {
               TileLayer(
                 urlTemplate: _isSatelliteView
                     ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-                    : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    : 'https://cartodb-basemaps-a.global.ssl.fastly.net/light_nolabels/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.gasan_port_tracker',
               ),
 

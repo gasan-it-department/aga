@@ -98,17 +98,14 @@ class _PreferencesSheetContentState extends State<_PreferencesSheetContent> {
             SnackbarMessenger.success,
             "Preference saved!"
         );
-        final rootNav = Navigator.of(context, rootNavigator: true);
+        final rootContext = Navigator.of(context, rootNavigator: true).context;
         Navigator.pop(context);
 
         if (!isAuto && municipalNameToSave.isNotEmpty && municipalNameToSave != previousMuni) {
-          rootNav.push(
-            MaterialPageRoute(
-              builder: (welcomeCtx) => BorderWelcome(
-                municipalityName: municipalNameToSave,
-                onProceed: () => Navigator.of(welcomeCtx).pop(),
-              ),
-            ),
+          if (!rootContext.mounted) return;
+          await BorderWelcome.show(
+            rootContext,
+            municipalityName: municipalNameToSave,
           );
         }
       }

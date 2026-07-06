@@ -1,11 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../Utility/BuyerScoreService.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 import 'package:gasan_port_tracker/Dialogs/ClassicDialog.dart';
+import 'package:gasan_port_tracker/Activities/Orders/OrderDetails.dart';
 
 class UserOrders extends StatefulWidget {
-  const UserOrders({super.key});
+  final String initialFilter;
+
+  const UserOrders({super.key, this.initialFilter = 'placed'});
 
   @override
   State<UserOrders> createState() => _UserOrdersState();
@@ -28,7 +33,7 @@ class _UserOrdersState extends State<UserOrders> {
   int? _totalRowCount;
   final Map<String, Map<String, dynamic>> _groupedById = {};
   List<Map<String, dynamic>> _orders = [];
-  String _filter = 'placed';
+  late String _filter;
   String _searchQuery = '';
   Map<String, int> _statusCounts = {};
   final TextEditingController _searchCtrl = TextEditingController();
@@ -39,8 +44,7 @@ class _UserOrdersState extends State<UserOrders> {
     {'key': 'all', 'label': 'All'},
     {'key': 'placed', 'label': 'Placed'},
     {'key': 'preparing', 'label': 'Preparing'},
-    {'key': 'ready for pickup', 'label': 'Ready'},
-    {'key': 'out for delivery', 'label': 'Shipping'},
+    {'key': 'delivery_pickup', 'label': 'Delivery/Pickup'},
     {'key': 'completed', 'label': 'Completed'},
     {'key': 'cancelled', 'label': 'Cancelled'},
   ];
@@ -48,6 +52,9 @@ class _UserOrdersState extends State<UserOrders> {
   @override
   void initState() {
     super.initState();
+    _filter = _statuses.any((status) => status['key'] == widget.initialFilter)
+        ? widget.initialFilter
+        : 'placed';
     _scrollCtrl.addListener(_onScroll);
     _fetchOrders(reset: true);
   }
@@ -62,7 +69,8 @@ class _UserOrdersState extends State<UserOrders> {
 
   void _onScroll() {
     if (!_scrollCtrl.hasClients) return;
-    if (_scrollCtrl.position.pixels >= _scrollCtrl.position.maxScrollExtent - 300) {
+    if (_scrollCtrl.position.pixels >=
+        _scrollCtrl.position.maxScrollExtent - 300) {
       _loadMore();
     }
   }
@@ -86,9 +94,19 @@ class _UserOrdersState extends State<UserOrders> {
         return;
       }
       var query = _supabase.from('orders').select().eq('order_user_id', uid);
-      if (_filter != 'all') query = query.eq('order_status', _filter);
-      if (_searchQuery.isNotEmpty) query = query.ilike('order_id', '%$_searchQuery%');
-      final rows = await query.order('order_id', ascending: false).range(_from, _from + _pageSize - 1);
+      if (_filter == 'delivery_pickup') {
+        query = query.inFilter('order_status', const [
+          'ready for pickup',
+          'out for delivery',
+        ]);
+      } else if (_filter != 'all') {
+        query = query.eq('order_status', _filter);
+      }
+      if (_searchQuery.isNotEmpty)
+        query = query.ilike('order_id', '%$_searchQuery%');
+      final rows = await query
+          .order('order_id', ascending: false)
+          .range(_from, _from + _pageSize - 1);
       await _mergeRows(rows as List);
       if (mounted) {
         setState(() {
@@ -107,8 +125,18 @@ class _UserOrdersState extends State<UserOrders> {
     try {
       final uid = _supabase.auth.currentUser?.id;
       if (uid == null) return;
-      var q = _supabase.from('orders').select('order_id').eq('order_user_id', uid);
-      if (_filter != 'all') q = q.eq('order_status', _filter);
+      var q = _supabase
+          .from('orders')
+          .select('order_id')
+          .eq('order_user_id', uid);
+      if (_filter == 'delivery_pickup') {
+        q = q.inFilter('order_status', const [
+          'ready for pickup',
+          'out for delivery',
+        ]);
+      } else if (_filter != 'all') {
+        q = q.eq('order_status', _filter);
+      }
       if (_searchQuery.isNotEmpty) q = q.ilike('order_id', '%$_searchQuery%');
       final res = await q.count(CountOption.exact);
       if (mounted) setState(() => _totalRowCount = res.count);
@@ -123,8 +151,18 @@ class _UserOrdersState extends State<UserOrders> {
       if (uid == null) return;
       final Map<String, int> counts = {};
       for (final s in _statuses) {
-        var q = _supabase.from('orders').select('order_id').eq('order_user_id', uid);
-        if (s['key'] != 'all') q = q.eq('order_status', s['key']!);
+        var q = _supabase
+            .from('orders')
+            .select('order_id')
+            .eq('order_user_id', uid);
+        if (s['key'] == 'delivery_pickup') {
+          q = q.inFilter('order_status', const [
+            'ready for pickup',
+            'out for delivery',
+          ]);
+        } else if (s['key'] != 'all') {
+          q = q.eq('order_status', s['key']!);
+        }
         if (_searchQuery.isNotEmpty) q = q.ilike('order_id', '%$_searchQuery%');
         final res = await q.count(CountOption.exact);
         counts[s['key']!] = res.count;
@@ -142,9 +180,19 @@ class _UserOrdersState extends State<UserOrders> {
       final uid = _supabase.auth.currentUser?.id;
       if (uid == null) return;
       var query = _supabase.from('orders').select().eq('order_user_id', uid);
-      if (_filter != 'all') query = query.eq('order_status', _filter);
-      if (_searchQuery.isNotEmpty) query = query.ilike('order_id', '%$_searchQuery%');
-      final rows = await query.order('order_id', ascending: false).range(_from, _from + _pageSize - 1);
+      if (_filter == 'delivery_pickup') {
+        query = query.inFilter('order_status', const [
+          'ready for pickup',
+          'out for delivery',
+        ]);
+      } else if (_filter != 'all') {
+        query = query.eq('order_status', _filter);
+      }
+      if (_searchQuery.isNotEmpty)
+        query = query.ilike('order_id', '%$_searchQuery%');
+      final rows = await query
+          .order('order_id', ascending: false)
+          .range(_from, _from + _pageSize - 1);
       await _mergeRows(rows as List);
       if (mounted) {
         setState(() {
@@ -161,11 +209,18 @@ class _UserOrdersState extends State<UserOrders> {
 
   Future<void> _mergeRows(List rows) async {
     if (rows.isEmpty) return;
-    final itemIds = rows.map((r) => r['order_item_id']?.toString()).whereType<String>().toSet().toList();
+    final itemIds = rows
+        .map((r) => r['order_item_id']?.toString())
+        .whereType<String>()
+        .toSet()
+        .toList();
     Map<String, Map<String, dynamic>> itemsById = {};
     Map<String, Map<String, dynamic>> sellersById = {};
     if (itemIds.isNotEmpty) {
-      final items = await _supabase.from('store_items').select('*, sellers(seller_id, seller_store_name, seller_logo)').inFilter('item_id', itemIds);
+      final items = await _supabase
+          .from('store_items')
+          .select('*, sellers(seller_id, seller_store_name, seller_logo)')
+          .inFilter('item_id', itemIds);
       for (final it in items as List) {
         itemsById[it['item_id'].toString()] = Map<String, dynamic>.from(it);
         if (it['sellers'] is Map) {
@@ -176,24 +231,38 @@ class _UserOrdersState extends State<UserOrders> {
     }
     for (final row in rows) {
       final r = Map<String, dynamic>.from(row);
-      final oid = r['order_id']?.toString() ?? '';
+      final rowId = r['order_id']?.toString() ?? '';
+      final oid = _groupOrderId(r);
       if (oid.isEmpty) continue;
-      _groupedById.putIfAbsent(oid, () => {
-            'order_id': oid,
-            'order_status': r['order_status'],
-            'order_delivery_address': r['order_delivery_address'],
-            'order_notes': r['order_notes'],
-            'order_payment_details': r['order_payment_details'],
-            'order_seller_id': r['order_seller_id'],
-            '_items': <Map<String, dynamic>>[],
-            '_total': 0 as num,
-          });
+      _groupedById.putIfAbsent(
+        oid,
+        () => {
+          'order_id': oid,
+          'order_status': r['order_status'],
+          'order_delivery_address': r['order_delivery_address'],
+          'order_notes': r['order_notes'],
+          'order_payment_details': r['order_payment_details'],
+          'order_seller_id': r['order_seller_id'],
+          'order_row_ids': <String>[],
+          '_items': <Map<String, dynamic>>[],
+          '_subtotal': 0 as num,
+          '_delivery_fee': _deliveryFee(r),
+          '_total': 0 as num,
+        },
+      );
       final entry = _groupedById[oid]!;
+      (entry['order_row_ids'] as List).add(rowId);
       final qty = r['order_quantity'] ?? 1;
-      final total = num.tryParse(r['order_total_price']?.toString() ?? '0') ?? 0;
-      entry['_total'] = (entry['_total'] as num) + total;
+      final total =
+          num.tryParse(r['order_total_price']?.toString() ?? '0') ?? 0;
+      final deliveryFee = _deliveryFee(r);
+      if (deliveryFee > 0) entry['_delivery_fee'] = deliveryFee;
+      entry['_subtotal'] = (entry['_subtotal'] as num) + total;
+      entry['_total'] =
+          (entry['_subtotal'] as num) + (entry['_delivery_fee'] as num);
       (entry['_items'] as List).add({
         ...r,
+        'order_row_id': rowId,
         'store_item': itemsById[r['order_item_id']?.toString()] ?? {},
         'qty': qty,
         'line_total': total,
@@ -206,11 +275,51 @@ class _UserOrdersState extends State<UserOrders> {
         final ap = (a['order_status']?.toString() == 'placed') ? 0 : 1;
         final bp = (b['order_status']?.toString() == 'placed') ? 0 : 1;
         if (ap != bp) return ap - bp;
-        return (b['order_id'] ?? '').toString().compareTo((a['order_id'] ?? '').toString());
+        return (b['order_id'] ?? '').toString().compareTo(
+          (a['order_id'] ?? '').toString(),
+        );
       });
   }
 
   List<Map<String, dynamic>> get _filtered => _orders;
+
+  String _groupOrderId(Map<String, dynamic> row) {
+    final groupId = row['order_group_id']?.toString().trim();
+    if (groupId != null && groupId.isNotEmpty) return groupId;
+    return (row['order_id']?.toString() ?? '').replaceFirst(
+      RegExp(r'_\d+$'),
+      '',
+    );
+  }
+
+  num _deliveryFee(Map<String, dynamic> row) {
+    final metaFee = _feeFromPayload(row['order_meta_data']);
+    if (metaFee > 0) return metaFee;
+    return _feeFromPayload(row['order_delivery_address']);
+  }
+
+  num _feeFromPayload(dynamic raw) {
+    dynamic value;
+    if (raw is Map) {
+      value =
+          raw['delivery_fee'] ??
+          raw['shipping_fee'] ??
+          raw['fee'] ??
+          raw['rate_amount'];
+    } else if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          value =
+              decoded['delivery_fee'] ??
+              decoded['shipping_fee'] ??
+              decoded['fee'] ??
+              decoded['rate_amount'];
+        }
+      } catch (_) {}
+    }
+    return value is num ? value : (num.tryParse(value?.toString() ?? '0') ?? 0);
+  }
 
   int? _orderEpochMs(String orderId) {
     final m = RegExp(r'ORDER_(\d+)').firstMatch(orderId);
@@ -242,52 +351,116 @@ class _UserOrdersState extends State<UserOrders> {
     return false;
   }
 
-  void _cancelOrder(String orderId) {
+  void _cancelOrder(String orderId, List<String> rowIds) async {
+    var deduction = 5;
+    try {
+      final rows = rowIds.isNotEmpty
+          ? await _supabase
+                .from('orders')
+                .select('order_status')
+                .inFilter('order_id', rowIds)
+                .limit(1)
+          : await _supabase
+                .from('orders')
+                .select('order_status')
+                .or('order_group_id.eq.$orderId,order_id.eq.$orderId')
+                .limit(1);
+      if (rows.isNotEmpty && rows.first['order_status'] != 'placed') {
+        deduction = 20;
+      }
+    } catch (_) {}
+    if (!mounted) return;
+
     final dialog = ClassicDialog();
     dialog.setTitle("Cancel Order?");
-    dialog.setMessage("Are you sure you want to cancel this order? This action cannot be undone.");
+    dialog.setMessage(
+      "Cancelling this order will reduce your buying score by $deduction points. "
+      "A lower score can disable Cash on Delivery or prevent you from placing new orders.\n\n"
+      "Are you sure you want to continue?",
+    );
     dialog.setPositiveMessage("Yes, Cancel");
     dialog.setNegativeMessage("Keep Order");
-    dialog.showTwoButtonDialog(context, (_) {
-      dialog.dismissDialog();
-    }, (_) async {
-      dialog.dismissDialog();
-      try {
-        await _supabase.from('orders').update({'order_status': 'cancelled'}).eq('order_id', orderId);
-        await _fetchOrders(reset: true);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Order cancelled.")));
+    dialog.showTwoButtonDialog(
+      context,
+      (_) {
+        dialog.dismissDialog();
+      },
+      (_) async {
+        dialog.dismissDialog();
+        try {
+          final rows = rowIds.isNotEmpty
+              ? await _supabase
+                    .from('orders')
+                    .select('order_user_id, order_status')
+                    .inFilter('order_id', rowIds)
+                    .limit(1)
+              : await _supabase
+                    .from('orders')
+                    .select('order_user_id, order_status')
+                    .or('order_group_id.eq.$orderId,order_id.eq.$orderId')
+                    .limit(1);
+          final order = rows.isNotEmpty ? rows.first : null;
+          await _supabase.rpc(
+            'cancel_order_and_restore_stock',
+            params: {'p_order_group_id': orderId},
+          );
+          if (order != null && order['order_status'] != 'cancelled') {
+            await BuyerScoreService(_supabase).adjustScore(
+              order['order_user_id'].toString(),
+              order['order_status'] == 'placed' ? -5 : -20,
+            );
+          }
+          await _fetchOrders(reset: true);
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text("Order cancelled.")));
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text("Cancel failed: $e")));
+          }
         }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cancel failed: $e")));
-        }
-      }
-    });
+      },
+    );
   }
 
   Color _statusColor(String s) {
     switch (s) {
-      case 'placed': return const Color(0xFFF59E0B);
-      case 'preparing': return const Color(0xFF3B82F6);
-      case 'ready for pickup': return const Color(0xFF8B5CF6);
-      case 'out for delivery': return const Color(0xFF06B6D4);
-      case 'completed': return const Color(0xFF10B981);
-      case 'cancelled': return const Color(0xFFEF4444);
-      default: return textSecondary;
+      case 'placed':
+        return const Color(0xFFF59E0B);
+      case 'preparing':
+        return const Color(0xFF3B82F6);
+      case 'ready for pickup':
+        return const Color(0xFF8B5CF6);
+      case 'out for delivery':
+        return const Color(0xFF06B6D4);
+      case 'completed':
+        return const Color(0xFF10B981);
+      case 'cancelled':
+        return const Color(0xFFEF4444);
+      default:
+        return textSecondary;
     }
   }
 
   String _addressLine(dynamic addr) {
     if (addr is Map) {
-      return [addr['street'], addr['barangay'], addr['municipality'], addr['province']]
-          .where((s) => s != null && s.toString().isNotEmpty).join(", ");
+      return [
+        addr['street'],
+        addr['barangay'],
+        addr['municipality'],
+        addr['province'],
+      ].where((s) => s != null && s.toString().isNotEmpty).join(", ");
     }
     return addr?.toString() ?? '';
   }
 
   String _deliveryType(dynamic addr) {
-    if (addr is Map && addr['delivery_type'] != null) return addr['delivery_type'].toString();
+    if (addr is Map && addr['delivery_type'] != null)
+      return addr['delivery_type'].toString();
     final line = _addressLine(addr);
     if (line.toLowerCase().startsWith("pickup")) return "Pickup";
     return "Delivery";
@@ -296,15 +469,32 @@ class _UserOrdersState extends State<UserOrders> {
   Widget _deliveryPill(String type) {
     final isPickup = type == "Pickup";
     final color = isPickup ? const Color(0xFF8B5CF6) : const Color(0xFF06B6D4);
-    final icon = isPickup ? Icons.storefront_rounded : Icons.local_shipping_rounded;
+    final icon = isPickup
+        ? Icons.storefront_rounded
+        : Icons.local_shipping_rounded;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withValues(alpha: 0.35))),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 11, color: color),
-        const SizedBox(width: 4),
-        Text(type.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 9.5, letterSpacing: 0.5)),
-      ]),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: color),
+          const SizedBox(width: 4),
+          Text(
+            type.toUpperCase(),
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              fontSize: 9.5,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -318,7 +508,10 @@ class _UserOrdersState extends State<UserOrders> {
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
-        title: const Text("My Orders", style: TextStyle(fontWeight: FontWeight.w900)),
+        title: const Text(
+          "My Orders",
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
         backgroundColor: Colors.white,
         foregroundColor: primaryDark,
         elevation: 0,
@@ -343,11 +536,21 @@ class _UserOrdersState extends State<UserOrders> {
                       label: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(s['label']!, style: TextStyle(color: active ? Colors.white : primaryDark, fontWeight: FontWeight.w700, fontSize: 12.5)),
+                          Text(
+                            s['label']!,
+                            style: TextStyle(
+                              color: active ? Colors.white : primaryDark,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12.5,
+                            ),
+                          ),
                           if (count > 0) ...[
                             const SizedBox(width: 6),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
                               constraints: const BoxConstraints(minWidth: 18),
                               decoration: BoxDecoration(
                                 color: active ? Colors.white : primaryBlue,
@@ -356,7 +559,11 @@ class _UserOrdersState extends State<UserOrders> {
                               child: Text(
                                 count > 99 ? '99+' : '$count',
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: active ? primaryBlue : Colors.white, fontWeight: FontWeight.w900, fontSize: 10.5),
+                                style: TextStyle(
+                                  color: active ? primaryBlue : Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 10.5,
+                                ),
                               ),
                             ),
                           ],
@@ -365,7 +572,9 @@ class _UserOrdersState extends State<UserOrders> {
                       selected: active,
                       selectedColor: primaryBlue,
                       backgroundColor: const Color(0xFFF1F5F9),
-                      side: BorderSide(color: active ? primaryBlue : cardBorder),
+                      side: BorderSide(
+                        color: active ? primaryBlue : cardBorder,
+                      ),
                       onSelected: (_) {
                         setState(() => _filter = s['key']!);
                         _fetchOrders(reset: true);
@@ -381,20 +590,21 @@ class _UserOrdersState extends State<UserOrders> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _filtered.isEmpty
-                    ? _empty()
-                    : RefreshIndicator(
-                        onRefresh: () => _fetchOrders(reset: true),
-                        child: ListView.separated(
-                          controller: _scrollCtrl,
-                          padding: const EdgeInsets.all(12),
-                          itemCount: _filtered.length + 1,
-                          separatorBuilder: (_, __) => const SizedBox(height: 10),
-                          itemBuilder: (_, i) {
-                            if (i >= _filtered.length) return _buildLoadMoreFooter();
-                            return _orderCard(_filtered[i]);
-                          },
-                        ),
-                      ),
+                ? _empty()
+                : RefreshIndicator(
+                    onRefresh: () => _fetchOrders(reset: true),
+                    child: ListView.separated(
+                      controller: _scrollCtrl,
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _filtered.length + 1,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (_, i) {
+                        if (i >= _filtered.length)
+                          return _buildLoadMoreFooter();
+                        return _orderCard(_filtered[i]);
+                      },
+                    ),
+                  ),
           ),
         ],
       ),
@@ -421,11 +631,19 @@ class _UserOrdersState extends State<UserOrders> {
             isDense: true,
             hintText: "Search by order ID...",
             hintStyle: TextStyle(color: textSecondary, fontSize: 13),
-            prefixIcon: Icon(Icons.search_rounded, color: primaryBlue, size: 20),
+            prefixIcon: Icon(
+              Icons.search_rounded,
+              color: primaryBlue,
+              size: 20,
+            ),
             suffixIcon: _searchQuery.isEmpty
                 ? null
                 : IconButton(
-                    icon: Icon(Icons.close_rounded, color: textSecondary, size: 18),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: textSecondary,
+                      size: 18,
+                    ),
                     onPressed: () {
                       _searchCtrl.clear();
                       setState(() => _searchQuery = '');
@@ -434,10 +652,22 @@ class _UserOrdersState extends State<UserOrders> {
                   ),
             filled: true,
             fillColor: bgColor,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 8,
+              vertical: 10,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: cardBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: cardBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: primaryBlue, width: 1.5),
+            ),
           ),
         ),
       ),
@@ -454,13 +684,32 @@ class _UserOrdersState extends State<UserOrders> {
         children: [
           Icon(Icons.receipt_long_rounded, size: 16, color: primaryBlue),
           const SizedBox(width: 8),
-          Text("$loaded loaded", style: TextStyle(color: primaryDark, fontWeight: FontWeight.w900, fontSize: 13)),
+          Text(
+            "$loaded loaded",
+            style: TextStyle(
+              color: primaryDark,
+              fontWeight: FontWeight.w900,
+              fontSize: 13,
+            ),
+          ),
           if (total != null) ...[
             const SizedBox(width: 6),
-            Text("· $total total ${_filter == 'all' ? 'rows' : '$_filter rows'}", style: TextStyle(color: textSecondary, fontWeight: FontWeight.w600, fontSize: 12)),
+            Text(
+              "· $total total ${_filter == 'all' ? 'rows' : '$_filter rows'}",
+              style: TextStyle(
+                color: textSecondary,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
           ],
           const Spacer(),
-          if (_loadingMore) const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+          if (_loadingMore)
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
         ],
       ),
     );
@@ -476,7 +725,16 @@ class _UserOrdersState extends State<UserOrders> {
     if (!_hasMore && _orders.isNotEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Center(child: Text("— End of list —", style: TextStyle(color: textSecondary, fontWeight: FontWeight.w700, fontSize: 12))),
+        child: Center(
+          child: Text(
+            "— End of list —",
+            style: TextStyle(
+              color: textSecondary,
+              fontWeight: FontWeight.w700,
+              fontSize: 12,
+            ),
+          ),
+        ),
       );
     }
     return const SizedBox(height: 32);
@@ -486,11 +744,29 @@ class _UserOrdersState extends State<UserOrders> {
     return ListView(
       children: [
         const SizedBox(height: 120),
-        Icon(Icons.receipt_long_outlined, size: 64, color: textSecondary.withValues(alpha: 0.5)),
+        Icon(
+          Icons.receipt_long_outlined,
+          size: 64,
+          color: textSecondary.withValues(alpha: 0.5),
+        ),
         const SizedBox(height: 12),
-        Center(child: Text("No orders yet", style: TextStyle(fontWeight: FontWeight.w800, color: primaryDark, fontSize: 16))),
+        Center(
+          child: Text(
+            "No orders yet",
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: primaryDark,
+              fontSize: 16,
+            ),
+          ),
+        ),
         const SizedBox(height: 4),
-        Center(child: Text("Your purchases will show up here.", style: TextStyle(color: textSecondary, fontSize: 13))),
+        Center(
+          child: Text(
+            "Your purchases will show up here.",
+            style: TextStyle(color: textSecondary, fontSize: 13),
+          ),
+        ),
       ],
     );
   }
@@ -518,17 +794,30 @@ class _UserOrdersState extends State<UserOrders> {
     final pay = _paymentChannel(order['order_payment_details']);
     final note = order['order_notes']?.toString() ?? '';
     final items = List<Map<String, dynamic>>.from(order['_items'] ?? []);
+    final rowIds = (order['order_row_ids'] as List? ?? const [])
+        .map((id) => id.toString())
+        .where((id) => id.isNotEmpty)
+        .toList();
     final seller = order['_seller'] is Map ? order['_seller'] as Map : {};
     final sellerName = seller['seller_store_name']?.toString() ?? 'Shop';
     final sellerLogo = _sellerLogoProvider(seller);
-    final itemCount = items.fold<num>(0, (s, it) => s + (it['qty'] as num? ?? 0));
+    final itemCount = items.fold<num>(
+      0,
+      (s, it) => s + (it['qty'] as num? ?? 0),
+    );
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: cardBorder),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.025), blurRadius: 12, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -537,73 +826,148 @@ class _UserOrdersState extends State<UserOrders> {
           Container(
             padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [primaryBlue.withValues(alpha: 0.06), Colors.white]),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+              gradient: LinearGradient(
+                colors: [primaryBlue.withValues(alpha: 0.06), Colors.white],
+              ),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(15),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Status + delivery pill on top — these are what the buyer cares about.
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(color: _statusColor(status).withValues(alpha: 0.13), borderRadius: BorderRadius.circular(20)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Container(width: 6, height: 6, decoration: BoxDecoration(color: _statusColor(status), shape: BoxShape.circle)),
-                      const SizedBox(width: 6),
-                      Text(status.toUpperCase(), style: TextStyle(color: _statusColor(status), fontWeight: FontWeight.w900, fontSize: 10.5, letterSpacing: 0.6)),
-                    ]),
-                  ),
-                  const SizedBox(width: 6),
-                  _deliveryPill(_deliveryType(order['order_delivery_address'])),
-                  const Spacer(),
-                  if (_elapsed(id) != null) ...[
-                    Icon(Icons.access_time_rounded, size: 11, color: textSecondary),
-                    const SizedBox(width: 3),
-                    Text(_elapsedLabel(_elapsed(id)!), style: TextStyle(color: textSecondary, fontWeight: FontWeight.w700, fontSize: 11)),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _statusColor(status).withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: _statusColor(status),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            status.toUpperCase(),
+                            style: TextStyle(
+                              color: _statusColor(status),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 10.5,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    _deliveryPill(
+                      _deliveryType(order['order_delivery_address']),
+                    ),
+                    const Spacer(),
+                    if (_elapsed(id) != null) ...[
+                      Icon(
+                        Icons.access_time_rounded,
+                        size: 11,
+                        color: textSecondary,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        _elapsedLabel(_elapsed(id)!),
+                        style: TextStyle(
+                          color: textSecondary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
                   ],
-                ]),
+                ),
                 const SizedBox(height: 8),
                 // Order id is the dominant element of the card now.
-                Row(children: [
-                  Icon(Icons.receipt_long_rounded, color: primaryBlue, size: 18),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      id,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: primaryDark, fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: 0.2),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.receipt_long_rounded,
+                      color: primaryBlue,
+                      size: 18,
                     ),
-                  ),
-                  Text(
-                    "${itemCount.toInt()} item${itemCount == 1 ? '' : 's'}",
-                    style: TextStyle(color: textSecondary, fontWeight: FontWeight.w800, fontSize: 11),
-                  ),
-                ]),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        id,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: primaryDark,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      "${itemCount.toInt()} item${itemCount == 1 ? '' : 's'}",
+                      style: TextStyle(
+                        color: textSecondary,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 6),
                 // Compact shop chip — small avatar + name, no border ring, no large text.
-                Row(children: [
-                  CircleAvatar(
-                    radius: 9,
-                    backgroundColor: primaryBlue.withValues(alpha: 0.1),
-                    backgroundImage: sellerLogo,
-                    child: sellerLogo == null
-                        ? Icon(Icons.storefront_rounded, size: 10, color: primaryBlue)
-                        : null,
-                  ),
-                  const SizedBox(width: 6),
-                  Text("from", style: TextStyle(color: textSecondary, fontSize: 10.5, fontWeight: FontWeight.w600)),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      sellerName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: textSecondary, fontWeight: FontWeight.w700, fontSize: 11),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 9,
+                      backgroundColor: primaryBlue.withValues(alpha: 0.1),
+                      backgroundImage: sellerLogo,
+                      child: sellerLogo == null
+                          ? Icon(
+                              Icons.storefront_rounded,
+                              size: 10,
+                              color: primaryBlue,
+                            )
+                          : null,
                     ),
-                  ),
-                ]),
+                    const SizedBox(width: 6),
+                    Text(
+                      "from",
+                      style: TextStyle(
+                        color: textSecondary,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        sellerName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: textSecondary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -617,30 +981,50 @@ class _UserOrdersState extends State<UserOrders> {
                 decoration: BoxDecoration(
                   color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
-                ),
-                child: Row(children: [
-                  Icon(Icons.schedule_rounded, color: const Color(0xFFF59E0B), size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Builder(builder: (_) {
-                      final e = _elapsed(id);
-                      if (status == 'placed') {
-                        return Text(
-                          e != null && e < const Duration(minutes: 5)
-                              ? "You can cancel within the next ${(const Duration(minutes: 5) - e).inMinutes}m ${(const Duration(minutes: 5) - e).inSeconds % 60}s."
-                              : "You can cancel this order while it's still pending.",
-                          style: const TextStyle(color: Color(0xFFB45309), fontSize: 11.5, fontWeight: FontWeight.w700, height: 1.4),
-                        );
-                      }
-                      final rem = const Duration(minutes: 5) - e!;
-                      return Text(
-                        "Seller accepted early. You can still cancel within ${rem.inMinutes}m ${rem.inSeconds % 60}s.",
-                        style: const TextStyle(color: Color(0xFFB45309), fontSize: 11.5, fontWeight: FontWeight.w700, height: 1.4),
-                      );
-                    }),
+                  border: Border.all(
+                    color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
                   ),
-                ]),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.schedule_rounded,
+                      color: const Color(0xFFF59E0B),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Builder(
+                        builder: (_) {
+                          final e = _elapsed(id);
+                          if (status == 'placed') {
+                            return Text(
+                              e != null && e < const Duration(minutes: 5)
+                                  ? "You can cancel within the next ${(const Duration(minutes: 5) - e).inMinutes}m ${(const Duration(minutes: 5) - e).inSeconds % 60}s."
+                                  : "You can cancel this order while it's still pending.",
+                              style: const TextStyle(
+                                color: Color(0xFFB45309),
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                height: 1.4,
+                              ),
+                            );
+                          }
+                          final rem = const Duration(minutes: 5) - e!;
+                          return Text(
+                            "Seller accepted early. You can still cancel within ${rem.inMinutes}m ${rem.inSeconds % 60}s.",
+                            style: const TextStyle(
+                              color: Color(0xFFB45309),
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                              height: 1.4,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -648,21 +1032,25 @@ class _UserOrdersState extends State<UserOrders> {
           // --- ITEMS ---
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-            child: Column(
-              children: items.map((it) => _itemTile(it)).toList(),
-            ),
+            child: Column(children: items.map((it) => _itemTile(it)).toList()),
           ),
 
           // --- DIVIDER + DETAILS ---
-          Container(margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), height: 1, color: cardBorder),
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            height: 1,
+            color: cardBorder,
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Column(children: [
-              _buildBuyerInfo(order['order_delivery_address']),
-              _kv(Icons.location_on_rounded, "Address", addr),
-              _kv(Icons.payments_rounded, "Payment", pay),
-              if (note.isNotEmpty) _kv(Icons.edit_note_rounded, "Note", note),
-            ]),
+            child: Column(
+              children: [
+                _buildBuyerInfo(order['order_delivery_address']),
+                _kv(Icons.location_on_rounded, "Address", addr),
+                _kv(Icons.payments_rounded, "Payment", pay),
+                if (note.isNotEmpty) _kv(Icons.edit_note_rounded, "Note", note),
+              ],
+            ),
           ),
 
           // --- TOTAL ---
@@ -676,9 +1064,24 @@ class _UserOrdersState extends State<UserOrders> {
             ),
             child: Row(
               children: [
-                Text("ORDER TOTAL", style: TextStyle(color: themeOrange.withValues(alpha: 0.9), fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.8)),
+                Text(
+                  "ORDER TOTAL",
+                  style: TextStyle(
+                    color: themeOrange.withValues(alpha: 0.9),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 11,
+                    letterSpacing: 0.8,
+                  ),
+                ),
                 const Spacer(),
-                Text("₱${Utility().formatPrice(total)}", style: TextStyle(color: themeOrange, fontWeight: FontWeight.w900, fontSize: 18)),
+                Text(
+                  "₱${Utility().formatPrice(total)}",
+                  style: TextStyle(
+                    color: themeOrange,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
               ],
             ),
           ),
@@ -689,18 +1092,45 @@ class _UserOrdersState extends State<UserOrders> {
               child: SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => _cancelOrder(id),
-                  icon: const Icon(Icons.cancel_outlined, size: 16, color: Color(0xFFEF4444)),
-                  label: const Text("Cancel Order", style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w900, fontSize: 13)),
+                  onPressed: () => _cancelOrder(id, rowIds),
+                  icon: const Icon(
+                    Icons.cancel_outlined,
+                    size: 16,
+                    color: Color(0xFFEF4444),
+                  ),
+                  label: const Text(
+                    "Cancel Order",
+                    style: TextStyle(
+                      color: Color(0xFFEF4444),
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                  ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: Color(0xFFEF4444)),
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
               ),
             ),
           ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => OrderDetails(order: order)),
+                ),
+                icon: const Icon(Icons.open_in_new_rounded, size: 17),
+                label: const Text('View Order Details'),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -708,10 +1138,14 @@ class _UserOrdersState extends State<UserOrders> {
 
   Widget _itemTile(Map<String, dynamic> it) {
     final si = it['store_item'] is Map ? it['store_item'] as Map : {};
-    final name = si['item_name']?.toString() ?? (it['order_item_id']?.toString() ?? 'Item');
+    final name =
+        si['item_name']?.toString() ??
+        (it['order_item_id']?.toString() ?? 'Item');
     final qty = it['qty'];
     final lineTotal = it['line_total'];
-    final variation = it['variation'] is Map ? Map<String, dynamic>.from(it['variation']) : null;
+    final variation = it['variation'] is Map
+        ? Map<String, dynamic>.from(it['variation'])
+        : null;
     final unitPrice = variation != null
         ? (num.tryParse(variation['price']?.toString() ?? '0') ?? 0)
         : (num.tryParse(si['item_price']?.toString() ?? '0') ?? 0);
@@ -727,9 +1161,14 @@ class _UserOrdersState extends State<UserOrders> {
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: SizedBox(
-              width: 56, height: 56,
+              width: 56,
+              height: 56,
               child: imgUrl != null
-                  ? Image.network(imgUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _itemImgFallback())
+                  ? Image.network(
+                      imgUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _itemImgFallback(),
+                    )
                   : _itemImgFallback(),
             ),
           ),
@@ -739,41 +1178,94 @@ class _UserOrdersState extends State<UserOrders> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: FontWeight.w800, color: primaryDark, fontSize: 13, height: 1.3)),
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: primaryDark,
+                    fontSize: 13,
+                    height: 1.3,
+                  ),
+                ),
                 if (variation != null) ...[
                   const SizedBox(height: 3),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: primaryBlue.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(5),
                     ),
-                    child: Text("Variant: ${variation['label']}",
-                        style: TextStyle(color: primaryBlue, fontWeight: FontWeight.w800, fontSize: 10.5)),
+                    child: Text(
+                      "Variant: ${variation['label']}",
+                      style: TextStyle(
+                        color: primaryBlue,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10.5,
+                      ),
+                    ),
                   ),
                 ],
                 if (category != null && category.isNotEmpty) ...[
                   const SizedBox(height: 3),
-                  Text(category, style: TextStyle(color: textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
+                  Text(
+                    category,
+                    style: TextStyle(
+                      color: textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
                 const SizedBox(height: 5),
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                    decoration: BoxDecoration(color: themeOrange.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(6)),
-                    child: Text("×$qty", style: TextStyle(color: themeOrange, fontWeight: FontWeight.w900, fontSize: 11.5)),
-                  ),
-                  const SizedBox(width: 6),
-                  Text("@ ₱${Utility().formatPrice(unitPrice)}", style: TextStyle(color: textSecondary, fontSize: 11, fontWeight: FontWeight.w700)),
-                ]),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: themeOrange.withValues(alpha: 0.13),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        "×$qty",
+                        style: TextStyle(
+                          color: themeOrange,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      "@ ₱${Utility().formatPrice(unitPrice)}",
+                      style: TextStyle(
+                        color: textSecondary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
           const SizedBox(width: 8),
           // Line total
-          Text("₱${Utility().formatPrice(lineTotal)}",
-              style: TextStyle(color: primaryDark, fontWeight: FontWeight.w900, fontSize: 13.5)),
+          Text(
+            "₱${Utility().formatPrice(lineTotal)}",
+            style: TextStyle(
+              color: primaryDark,
+              fontWeight: FontWeight.w900,
+              fontSize: 13.5,
+            ),
+          ),
         ],
       ),
     );
@@ -782,7 +1274,11 @@ class _UserOrdersState extends State<UserOrders> {
   Widget _itemImgFallback() {
     return Container(
       color: bgColor,
-      child: Icon(Icons.image_outlined, color: textSecondary.withValues(alpha: 0.5), size: 24),
+      child: Icon(
+        Icons.image_outlined,
+        color: textSecondary.withValues(alpha: 0.5),
+        size: 24,
+      ),
     );
   }
 
@@ -796,7 +1292,8 @@ class _UserOrdersState extends State<UserOrders> {
     final name = [first, middle, last].where((s) => s.isNotEmpty).join(' ');
     final contact = (a['contact_number'] ?? '').toString().trim();
     final email = (a['email'] ?? '').toString().trim();
-    if (name.isEmpty && contact.isEmpty && email.isEmpty) return const SizedBox.shrink();
+    if (name.isEmpty && contact.isEmpty && email.isEmpty)
+      return const SizedBox.shrink();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -809,16 +1306,26 @@ class _UserOrdersState extends State<UserOrders> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Icon(Icons.person_rounded, color: primaryBlue, size: 14),
-            const SizedBox(width: 6),
-            Text("BUYER INFORMATION",
-                style: TextStyle(color: primaryBlue, fontWeight: FontWeight.w900, fontSize: 10.5, letterSpacing: 0.8)),
-          ]),
+          Row(
+            children: [
+              Icon(Icons.person_rounded, color: primaryBlue, size: 14),
+              const SizedBox(width: 6),
+              Text(
+                "BUYER INFORMATION",
+                style: TextStyle(
+                  color: primaryBlue,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 10.5,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 6),
           if (name.isNotEmpty) _kv(Icons.badge_outlined, "Name", name),
           if (contact.isNotEmpty) _kv(Icons.call_rounded, "Contact", contact),
-          if (email.isNotEmpty) _kv(Icons.alternate_email_rounded, "Email", email),
+          if (email.isNotEmpty)
+            _kv(Icons.alternate_email_rounded, "Email", email),
         ],
       ),
     );
@@ -833,7 +1340,10 @@ class _UserOrdersState extends State<UserOrders> {
         children: [
           Container(
             padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(color: primaryBlue.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(6)),
+            decoration: BoxDecoration(
+              color: primaryBlue.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(6),
+            ),
             child: Icon(icon, size: 12, color: primaryBlue),
           ),
           const SizedBox(width: 8),
@@ -841,9 +1351,25 @@ class _UserOrdersState extends State<UserOrders> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label.toUpperCase(), style: TextStyle(color: textSecondary, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+                Text(
+                  label.toUpperCase(),
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 const SizedBox(height: 1),
-                Text(value, style: TextStyle(color: primaryDark, fontSize: 12.5, fontWeight: FontWeight.w700, height: 1.35)),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: primaryDark,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
               ],
             ),
           ),

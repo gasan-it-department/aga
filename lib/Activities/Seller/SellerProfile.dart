@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
@@ -10,9 +10,13 @@ import 'package:gasan_port_tracker/Map/MapLocationPicker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:gasan_port_tracker/Activities/Seller/StoreItemList.dart';
 import 'package:gasan_port_tracker/Activities/Seller/DeliveryRateList.dart';
+import 'package:gasan_port_tracker/Activities/Seller/StoreAnalytics.dart';
 import 'package:gasan_port_tracker/Activities/Chat/ChatInbox.dart';
 import 'package:gasan_port_tracker/Utility/ChatService.dart';
+import 'package:gasan_port_tracker/Utility/SemaphoreSmsService.dart';
+import 'package:gasan_port_tracker/Services/OnlineStoreWidgetService.dart';
 import 'package:gasan_port_tracker/Activities/Seller/SubActivities/SellerOrders.dart';
+import 'package:gasan_port_tracker/Activities/Seller/SubActivities/SellerOperatingHours.dart';
 import 'package:gasan_port_tracker/Utility/Responsive.dart';
 import 'package:gasan_port_tracker/Dialogs/Bottomsheets/DeleteShopConfirmation.dart';
 import 'package:gasan_port_tracker/FloatingMessages/SnackbarMessenger.dart';
@@ -56,65 +60,244 @@ class _SellerProfileState extends State<SellerProfile> {
 
   final List<String> _provinces = ["Marinduque"];
   final Map<String, List<String>> _municipalities = {
-    "Marinduque": ["Boac", "Buenavista", "Gasan", "Mogpog", "Santa Cruz", "Torrijos"]
+    "Marinduque": [
+      "Boac",
+      "Buenavista",
+      "Gasan",
+      "Mogpog",
+      "Santa Cruz",
+      "Torrijos",
+    ],
   };
   final Map<String, List<String>> _barangays = {
     "Boac": [
-      "Agot", "Agumaymayan", "Amoingon", "Apitong", "Balagasan", "Balaring",
-      "Balimbing", "Balogo", "Bamban", "Bangbangalon", "Bantad", "Bantay",
-      "Bayuti", "Binunga", "Boi", "Boton", "Buliasnin", "Bunganay",
-      "Caganhao", "Canat", "Catubugan", "Cawit", "Daig", "Daypay", "Duyay",
-      "Hinapulan", "Ihatub", "Isok I (Poblacion)", "Isok II Poblacion",
-      "Laylay", "Lupac", "Mahinhin", "Mainit", "Malbog", "Maligaya",
-      "Malusak (Poblacion)", "Mansiwat", "Mataas na Bayan (Poblacion)",
-      "Maybo", "Mercado (Poblacion)", "Murallon (Poblacion)", "Ogbac",
-      "Pawa", "Pili", "Poctoy", "Poras", "Puting Buhangin", "Puyog",
-      "Sabong", "San Miguel (Poblacion)", "Santol", "Sawi", "Tabi",
-      "Tabigue", "Tagwak", "Tambunan", "Tampus (Poblacion)", "Tanza",
-      "Tugos", "Tumagabok", "Tumapon"
+      "Agot",
+      "Agumaymayan",
+      "Amoingon",
+      "Apitong",
+      "Balagasan",
+      "Balaring",
+      "Balimbing",
+      "Balogo",
+      "Bamban",
+      "Bangbangalon",
+      "Bantad",
+      "Bantay",
+      "Bayuti",
+      "Binunga",
+      "Boi",
+      "Boton",
+      "Buliasnin",
+      "Bunganay",
+      "Caganhao",
+      "Canat",
+      "Catubugan",
+      "Cawit",
+      "Daig",
+      "Daypay",
+      "Duyay",
+      "Hinapulan",
+      "Ihatub",
+      "Isok I (Poblacion)",
+      "Isok II Poblacion",
+      "Laylay",
+      "Lupac",
+      "Mahinhin",
+      "Mainit",
+      "Malbog",
+      "Maligaya",
+      "Malusak (Poblacion)",
+      "Mansiwat",
+      "Mataas na Bayan (Poblacion)",
+      "Maybo",
+      "Mercado (Poblacion)",
+      "Murallon (Poblacion)",
+      "Ogbac",
+      "Pawa",
+      "Pili",
+      "Poctoy",
+      "Poras",
+      "Puting Buhangin",
+      "Puyog",
+      "Sabong",
+      "San Miguel (Poblacion)",
+      "Santol",
+      "Sawi",
+      "Tabi",
+      "Tabigue",
+      "Tagwak",
+      "Tambunan",
+      "Tampus (Poblacion)",
+      "Tanza",
+      "Tugos",
+      "Tumagabok",
+      "Tumapon",
     ],
     "Buenavista": [
-      "Bagacay", "Bagtingon", "Barangay I (Poblacion)",
-      "Barangay II (Poblacion)", "Barangay III (Poblacion)",
-      "Barangay IV (Poblacion)", "Bicas-Bicas", "Caigangan", "Daykitin",
-      "Libas", "Malbog", "Sihi", "Timbo", "Tungib-Lipata", "Yook"
+      "Bagacay",
+      "Bagtingon",
+      "Barangay I (Poblacion)",
+      "Barangay II (Poblacion)",
+      "Barangay III (Poblacion)",
+      "Barangay IV (Poblacion)",
+      "Bicas-Bicas",
+      "Caigangan",
+      "Daykitin",
+      "Libas",
+      "Malbog",
+      "Sihi",
+      "Timbo",
+      "Tungib-Lipata",
+      "Yook",
     ],
     "Gasan": [
-      "Antipolo", "Bachao Ibaba", "Bachao Ilaya", "Bacongbacong", "Bahi",
-      "Bangbang", "Banot", "Banuyo", "Barangay I (Poblacion)",
-      "Barangay II (Poblacion)", "Barangay III (Poblacion)", "Bognuyan",
-      "Cabugao", "Dawis", "Dili", "Libtangin", "Mahunig", "Mangiliol",
-      "Masiga", "Matandang Gasan", "Pangi", "Pingan", "Tabionan",
-      "Tapuyan", "Tiguion"
+      "Antipolo",
+      "Bachao Ibaba",
+      "Bachao Ilaya",
+      "Bacongbacong",
+      "Bahi",
+      "Bangbang",
+      "Banot",
+      "Banuyo",
+      "Barangay I (Poblacion)",
+      "Barangay II (Poblacion)",
+      "Barangay III (Poblacion)",
+      "Bognuyan",
+      "Cabugao",
+      "Dawis",
+      "Dili",
+      "Libtangin",
+      "Mahunig",
+      "Mangiliol",
+      "Masiga",
+      "Matandang Gasan",
+      "Pangi",
+      "Pingan",
+      "Tabionan",
+      "Tapuyan",
+      "Tiguion",
     ],
     "Mogpog": [
-      "Anapog-Sibucao", "Argao", "Balanacan", "Banto", "Bintakay", "Bocboc",
-      "Butansapa", "Candahon", "Capayang", "Danao", "Dulong Bayan (Poblacion)",
-      "Gitnang Bayan (Poblacion)", "Guisian", "Hinadharan", "Hinanggayon",
-      "Ino", "Janagdong", "Lamesa", "Laon", "Magapua", "Malayak", "Malusak",
-      "Mampaitan", "Mangyan-Mababad", "Market Site (Poblacion)",
-      "Mataas na Bayan", "Mendez", "Nangka I", "Nangka II", "Paye", "Pili",
-      "Puting Buhangin", "Sayao", "Silangan", "Sumangga", "Tarug",
-      "Villa Mendez (Poblacion)"
+      "Anapog-Sibucao",
+      "Argao",
+      "Balanacan",
+      "Banto",
+      "Bintakay",
+      "Bocboc",
+      "Butansapa",
+      "Candahon",
+      "Capayang",
+      "Danao",
+      "Dulong Bayan (Poblacion)",
+      "Gitnang Bayan (Poblacion)",
+      "Guisian",
+      "Hinadharan",
+      "Hinanggayon",
+      "Ino",
+      "Janagdong",
+      "Lamesa",
+      "Laon",
+      "Magapua",
+      "Malayak",
+      "Malusak",
+      "Mampaitan",
+      "Mangyan-Mababad",
+      "Market Site (Poblacion)",
+      "Mataas na Bayan",
+      "Mendez",
+      "Nangka I",
+      "Nangka II",
+      "Paye",
+      "Pili",
+      "Puting Buhangin",
+      "Sayao",
+      "Silangan",
+      "Sumangga",
+      "Tarug",
+      "Villa Mendez (Poblacion)",
     ],
     "Santa Cruz": [
-      "Alobo", "Angas", "Aturan", "Bagong Silang (Poblacion)", "Baguidbirin",
-      "Baliis", "Balogo", "Banahaw (Poblacion)", "Bangcuangan", "Banogbog",
-      "Biga", "Botilao", "Buyabod", "Dating Bayan", "Devilla", "Dolores",
-      "Haguimit", "Hupi", "Ipil", "Jolo", "Kaganhao", "Kalangkang",
-      "Kamandugan", "Kasily", "Kilo-Kilo", "Kiñaman", "Labo", "Lamesa",
-      "Landy", "Lapu-Lapu", "Libjo", "Lipa", "Lusok", "Maharlika (Poblacion)",
-      "Makina", "Maniwaya", "Manlibunan", "Masaguisi", "Masalukot",
-      "Matalaba", "Mongpong", "Morales", "Napo", "Pag-Asa (Poblacion)",
-      "Pantayin", "Polo", "Pulong-Parang", "Punong", "San Antonio",
-      "San Isidro", "Tagum", "Tamayo", "Tambangan", "Tawiran", "Taytay"
+      "Alobo",
+      "Angas",
+      "Aturan",
+      "Bagong Silang (Poblacion)",
+      "Baguidbirin",
+      "Baliis",
+      "Balogo",
+      "Banahaw (Poblacion)",
+      "Bangcuangan",
+      "Banogbog",
+      "Biga",
+      "Botilao",
+      "Buyabod",
+      "Dating Bayan",
+      "Devilla",
+      "Dolores",
+      "Haguimit",
+      "Hupi",
+      "Ipil",
+      "Jolo",
+      "Kaganhao",
+      "Kalangkang",
+      "Kamandugan",
+      "Kasily",
+      "Kilo-Kilo",
+      "KiÃ±aman",
+      "Labo",
+      "Lamesa",
+      "Landy",
+      "Lapu-Lapu",
+      "Libjo",
+      "Lipa",
+      "Lusok",
+      "Maharlika (Poblacion)",
+      "Makina",
+      "Maniwaya",
+      "Manlibunan",
+      "Masaguisi",
+      "Masalukot",
+      "Matalaba",
+      "Mongpong",
+      "Morales",
+      "Napo",
+      "Pag-Asa (Poblacion)",
+      "Pantayin",
+      "Polo",
+      "Pulong-Parang",
+      "Punong",
+      "San Antonio",
+      "San Isidro",
+      "Tagum",
+      "Tamayo",
+      "Tambangan",
+      "Tawiran",
+      "Taytay",
     ],
     "Torrijos": [
-      "Bangwayin", "Bayakbakin", "Bolo", "Bonliw", "Buangan", "Cabuyo",
-      "Cagpo", "Dampulan", "Kay Duke", "Mabuhay", "Makawayan", "Malibago",
-      "Malinao", "Marlangga", "Matuyatuya", "Nangka", "Pakaskasan",
-      "Payanas", "Poblacion", "Poctoy", "Sibuyao", "Suha", "Talawan",
-      "Tigwi"
+      "Bangwayin",
+      "Bayakbakin",
+      "Bolo",
+      "Bonliw",
+      "Buangan",
+      "Cabuyo",
+      "Cagpo",
+      "Dampulan",
+      "Kay Duke",
+      "Mabuhay",
+      "Makawayan",
+      "Malibago",
+      "Malinao",
+      "Marlangga",
+      "Matuyatuya",
+      "Nangka",
+      "Pakaskasan",
+      "Payanas",
+      "Poblacion",
+      "Poctoy",
+      "Sibuyao",
+      "Suha",
+      "Talawan",
+      "Tigwi",
     ],
   };
 
@@ -132,9 +315,11 @@ class _SellerProfileState extends State<SellerProfile> {
   bool _showIntro = false;
   final PageController _introPageCtrl = PageController();
   int _introPage = 0;
-  bool _isSaving = false;     // For saving state
+  final bool _isSaving = false; // For saving state
   bool _isPaymentFirst = false;
   num _deliveryMinOrder = 0;
+  Map<String, dynamic> _operatingHours = {};
+  String _verificationDocumentType = 'business_permit_dti';
 
   // Rules based on Store Status
   String _storeStatus = 'new';
@@ -169,23 +354,42 @@ class _SellerProfileState extends State<SellerProfile> {
     "Restaurant",
     "Milk Tea / Coffee Shop",
     "Bakery",
+    "Souvenirs",
+    "Homemade Products",
+    "Clothing and Apparel",
+    "Seafoods",
+    "Electronics and Accessories",
+    "Flowers and Gifts",
+    "General Store",
   ];
 
   // Available Tags for Seller Features
   final List<String> _availableTags = [
-    "GCash", "Maya", "Cash on Delivery", "In-Store Pickup",
-    "Delivery", "24/7", "Halal", "Vegan Friendly"
+    "GCash",
+    "Maya",
+    "Cash on Delivery",
+    "In-Store Pickup",
+    "Delivery",
+    "24/7",
+    "Halal",
+    "Vegan Friendly",
   ];
   final List<String> _selectedTags = [];
 
   // --- PAYMENT METHODS (multi-select) ---
   static const List<String> _availablePaymentMethods = [
-    "GCash", "Maya", "Cash on Delivery", "In-Store Payment"
+    "GCash",
+    "Maya",
+    "Cash on Delivery",
+    "In-Store Payment",
   ];
   final Set<String> _selectedPaymentMethods = <String>{};
 
   // --- FULFILLMENT OPTIONS (multi-select) ---
-  static const List<String> _availableFulfillment = ["Delivery", "In-Store Pickup"];
+  static const List<String> _availableFulfillment = [
+    "Delivery",
+    "In-Store Pickup",
+  ];
   final Set<String> _selectedFulfillment = <String>{};
 
   // --- UTILS ---
@@ -212,7 +416,6 @@ class _SellerProfileState extends State<SellerProfile> {
     super.dispose();
   }
 
-
   // --- CORE LOGIC: FETCH & APPLY RULES ---
   Future<void> _fetchSellerData() async {
     final user = _supabase.auth.currentUser;
@@ -232,6 +435,14 @@ class _SellerProfileState extends State<SellerProfile> {
       if (data != null) {
         _sellerId = data['seller_id'];
         _storeStatus = data['seller_store_status'] ?? 'in_review';
+        final operatingHours = data['seller_operating_hours'];
+        if (operatingHours is Map) {
+          _operatingHours = Map<String, dynamic>.from(operatingHours);
+        } else if (operatingHours is String && operatingHours.isNotEmpty) {
+          _operatingHours = Map<String, dynamic>.from(
+            jsonDecode(operatingHours) as Map,
+          );
+        }
 
         final rates = data['seller_delivery_rates'];
         if (rates is List) _rateCount = rates.length;
@@ -248,15 +459,15 @@ class _SellerProfileState extends State<SellerProfile> {
         // Populate Form
         _storeNameCtrl.text = data['seller_store_name'] ?? '';
         _descriptionCtrl.text = data['seller_store_description'] ?? '';
-        
+
         final addrData = data['seller_store_address'];
         if (addrData is Map<String, dynamic>) {
-           _selectedProvince = addrData['province'] ?? "Marinduque";
-           _selectedMunicipality = addrData['municipality'];
-           _selectedBarangay = addrData['barangay'];
-           _streetCtrl.text = addrData['street'] ?? '';
+          _selectedProvince = addrData['province'] ?? "Marinduque";
+          _selectedMunicipality = addrData['municipality'];
+          _selectedBarangay = addrData['barangay'];
+          _streetCtrl.text = addrData['street'] ?? '';
         } else if (addrData is String) {
-           _streetCtrl.text = addrData;
+          _streetCtrl.text = addrData;
         }
 
         _contactCtrl.text = data['seller_contact_number'] ?? '';
@@ -274,9 +485,12 @@ class _SellerProfileState extends State<SellerProfile> {
         if (data['seller_payment_method'] != null) {
           final pm = data['seller_payment_method'];
           List<dynamic> list = [];
-          if (pm is List) list = pm;
-          else if (pm is String) {
-            try { list = jsonDecode(pm); } catch (_) {}
+          if (pm is List) {
+            list = pm;
+          } else if (pm is String) {
+            try {
+              list = jsonDecode(pm);
+            } catch (_) {}
           }
           _selectedPaymentMethods.addAll(list.map((e) => e.toString()));
         }
@@ -313,13 +527,26 @@ class _SellerProfileState extends State<SellerProfile> {
           }
 
           _isPaymentFirst = prefMap['is_payment_first'] ?? false;
-          _gcashQrCtrl.text = prefMap['gcash_number'] ?? prefMap['gcash_qr'] ?? '';
+          _gcashQrCtrl.text =
+              prefMap['gcash_number'] ?? prefMap['gcash_qr'] ?? '';
           _mayaQrCtrl.text = prefMap['maya_number'] ?? prefMap['maya_qr'] ?? '';
           _gcashQrUrl = prefMap['gcash_qr_image'];
           _mayaQrUrl = prefMap['maya_qr_image'];
+          final verificationType = prefMap['verification_document_type']
+              ?.toString();
+          if (verificationType == 'valid_id' ||
+              verificationType == 'business_permit_dti') {
+            _verificationDocumentType = verificationType!;
+          }
           final ff = prefMap['fulfillment'];
-          if (ff is List) _selectedFulfillment.addAll(ff.map((e) => e.toString()));
-          _deliveryMinOrder = (prefMap['delivery_min_order'] as num?)?.toDouble() ?? 0;
+          if (ff is List) {
+            _selectedFulfillment.addAll(ff.map((e) => e.toString()));
+          }
+          if (_rateCount == 0) {
+            _selectedFulfillment.remove("Delivery");
+          }
+          _deliveryMinOrder =
+              (prefMap['delivery_min_order'] as num?)?.toDouble() ?? 0;
         }
       }
     } catch (e) {
@@ -341,9 +568,25 @@ class _SellerProfileState extends State<SellerProfile> {
     final sid = _sellerId;
     if (sid == null) return;
     try {
-      final itemRes = await _supabase.from('store_items').select('item_id').eq('item_seller_id', sid).count(CountOption.exact);
-      final orderRes = await _supabase.from('orders').select('order_id').eq('order_seller_id', sid).eq('order_status', 'placed').count(CountOption.exact);
+      final itemRes = await _supabase
+          .from('store_items')
+          .select('item_id')
+          .eq('item_seller_id', sid)
+          .count(CountOption.exact);
+      final orderRes = await _supabase
+          .from('orders')
+          .select('order_id')
+          .eq('order_seller_id', sid)
+          .eq('order_status', 'placed')
+          .count(CountOption.exact);
       final unread = await ChatService().sellerUnreadTotal(sid);
+      await OnlineStoreWidgetService.update(
+        newOrders: orderRes.count,
+        messages: unread,
+        storeName: _storeNameCtrl.text.trim().isEmpty
+            ? 'Online Store'
+            : _storeNameCtrl.text.trim(),
+      );
       if (mounted) {
         setState(() {
           _itemCount = itemRes.count;
@@ -382,7 +625,11 @@ class _SellerProfileState extends State<SellerProfile> {
     }
   }
 
-  ImageProvider? _getImageProvider(XFile? file, String? url, IconData placeholder) {
+  ImageProvider? _getImageProvider(
+    XFile? file,
+    String? url,
+    IconData placeholder,
+  ) {
     if (file != null) {
       return kIsWeb ? NetworkImage(file.path) : FileImage(File(file.path));
     }
@@ -405,17 +652,24 @@ class _SellerProfileState extends State<SellerProfile> {
     }
   }
 
-  Future<String?> _uploadToBucket(XFile file, String bucket, String prefix) async {
+  Future<String?> _uploadToBucket(
+    XFile file,
+    String bucket,
+    String prefix,
+  ) async {
     try {
       final String fileExt = file.name.split('.').last;
-      final String fileName = "${prefix}_${DateTime.now().millisecondsSinceEpoch}_${Utility().generateUniqueID()}.$fileExt";
+      final String fileName =
+          "${prefix}_${DateTime.now().millisecondsSinceEpoch}_${Utility().generateUniqueID()}.$fileExt";
       final Uint8List fileBytes = await file.readAsBytes();
 
-      await _supabase.storage.from(bucket).uploadBinary(
-        fileName,
-        fileBytes,
-        fileOptions: const FileOptions(upsert: true),
-      );
+      await _supabase.storage
+          .from(bucket)
+          .uploadBinary(
+            fileName,
+            fileBytes,
+            fileOptions: const FileOptions(upsert: true),
+          );
 
       return _supabase.storage.from(bucket).getPublicUrl(fileName);
     } catch (e) {
@@ -427,14 +681,17 @@ class _SellerProfileState extends State<SellerProfile> {
   Future<String?> _uploadToStorage(XFile file, String folder) async {
     try {
       final String fileExt = file.name.split('.').last;
-      final String fileName = "$folder/${DateTime.now().millisecondsSinceEpoch}_${Utility().generateUniqueID()}.$fileExt";
+      final String fileName =
+          "$folder/${DateTime.now().millisecondsSinceEpoch}_${Utility().generateUniqueID()}.$fileExt";
       final Uint8List fileBytes = await file.readAsBytes();
 
-      await _supabase.storage.from('seller_images').uploadBinary(
-        fileName,
-        fileBytes,
-        fileOptions: const FileOptions(upsert: true),
-      );
+      await _supabase.storage
+          .from('seller_images')
+          .uploadBinary(
+            fileName,
+            fileBytes,
+            fileOptions: const FileOptions(upsert: true),
+          );
 
       return _supabase.storage.from('seller_images').getPublicUrl(fileName);
     } catch (e) {
@@ -467,30 +724,59 @@ class _SellerProfileState extends State<SellerProfile> {
       return;
     }
     if (_permitFile == null && _permitUrl == null && _storeStatus == 'new') {
-      _showErrorSnackBar("Business Permit is required for new applications.");
+      _showErrorSnackBar(
+        "${_verificationDocumentLabel()} is required for new applications.",
+      );
       return;
     }
     if (_selectedFulfillment.isEmpty) {
-      _showErrorSnackBar("Please select at least one delivery option (Delivery or In-Store Pickup).");
+      _showErrorSnackBar(
+        "Please select at least one delivery option (Delivery or In-Store Pickup).",
+      );
+      return;
+    }
+    if (_selectedFulfillment.contains("Delivery") && _rateCount == 0) {
+      _selectedFulfillment.remove("Delivery");
+      _showErrorSnackBar(
+        "Add at least one delivery rate before enabling Delivery.",
+      );
       return;
     }
     if (_selectedPaymentMethods.isEmpty) {
       _showErrorSnackBar("Please select at least one payment method.");
       return;
     }
-    final bool _gcashQrMissing = _gcashQrFile == null && (_gcashQrUrl == null || _gcashQrUrl!.isEmpty);
-    final bool _mayaQrMissing = _mayaQrFile == null && (_mayaQrUrl == null || _mayaQrUrl!.isEmpty);
+    final normalizedContact = SemaphoreSmsService.normalizePhilippineMobile(
+      _contactCtrl.text,
+    );
+    if (_contactCtrl.text.trim().isEmpty) {
+      _showErrorSnackBar("Contact Number is required for order SMS alerts.");
+      return;
+    }
+    if (normalizedContact == null) {
+      _showErrorSnackBar(
+        "Enter a valid Philippine mobile number, like 09123456789.",
+      );
+      return;
+    }
+    _contactCtrl.text = normalizedContact;
+    final bool gcashQrMissing =
+        _gcashQrFile == null && (_gcashQrUrl == null || _gcashQrUrl!.isEmpty);
+    final bool mayaQrMissing =
+        _mayaQrFile == null && (_mayaQrUrl == null || _mayaQrUrl!.isEmpty);
     if (_isPaymentFirst) {
-      if (_gcashQrMissing && _mayaQrMissing) {
-        _showErrorSnackBar("At least GCash or Maya QR is required when Payment First Policy is enabled.");
+      if (gcashQrMissing && mayaQrMissing) {
+        _showErrorSnackBar(
+          "At least GCash or Maya QR is required when Payment First Policy is enabled.",
+        );
         return;
       }
     } else {
-      if (_selectedPaymentMethods.contains("GCash") && _gcashQrMissing) {
+      if (_selectedPaymentMethods.contains("GCash") && gcashQrMissing) {
         _showErrorSnackBar("GCash QR code is required when GCash is selected.");
         return;
       }
-      if (_selectedPaymentMethods.contains("Maya") && _mayaQrMissing) {
+      if (_selectedPaymentMethods.contains("Maya") && mayaQrMissing) {
         _showErrorSnackBar("Maya QR code is required when Maya is selected.");
         return;
       }
@@ -520,21 +806,32 @@ class _SellerProfileState extends State<SellerProfile> {
       }
       if (_permitFile != null) {
         final oldUrl = _permitUrl;
-        _permitUrl = await _uploadToStorage(_permitFile!, 'permit');
+        final documentFolder = _verificationDocumentType == 'valid_id'
+            ? 'valid_id'
+            : 'permit';
+        _permitUrl = await _uploadToStorage(_permitFile!, documentFolder);
         if (_permitUrl != null && oldUrl != null && oldUrl != _permitUrl) {
           await _deleteFromBucket(oldUrl, 'seller_images');
         }
       }
       if (_gcashQrFile != null) {
         final oldUrl = _gcashQrUrl;
-        _gcashQrUrl = await _uploadToBucket(_gcashQrFile!, 'digital_wallet_qr', 'gcash');
+        _gcashQrUrl = await _uploadToBucket(
+          _gcashQrFile!,
+          'digital_wallet_qr',
+          'gcash',
+        );
         if (_gcashQrUrl != null && oldUrl != null && oldUrl != _gcashQrUrl) {
           await _deleteFromBucket(oldUrl, 'digital_wallet_qr');
         }
       }
       if (_mayaQrFile != null) {
         final oldUrl = _mayaQrUrl;
-        _mayaQrUrl = await _uploadToBucket(_mayaQrFile!, 'digital_wallet_qr', 'maya');
+        _mayaQrUrl = await _uploadToBucket(
+          _mayaQrFile!,
+          'digital_wallet_qr',
+          'maya',
+        );
         if (_mayaQrUrl != null && oldUrl != null && oldUrl != _mayaQrUrl) {
           await _deleteFromBucket(oldUrl, 'digital_wallet_qr');
         }
@@ -542,14 +839,22 @@ class _SellerProfileState extends State<SellerProfile> {
 
       // Delete QR images that were cleared by user
       if (_gcashQrFile == null && _gcashQrUrl == null) {
-        final dbPrefs = await _supabase.from('sellers').select('seller_preferences').eq('seller_user_id', currentUser.id).maybeSingle();
+        final dbPrefs = await _supabase
+            .from('sellers')
+            .select('seller_preferences')
+            .eq('seller_user_id', currentUser.id)
+            .maybeSingle();
         final prev = dbPrefs?['seller_preferences'];
         if (prev is Map && prev['gcash_qr_image'] is String) {
           await _deleteFromBucket(prev['gcash_qr_image'], 'digital_wallet_qr');
         }
       }
       if (_mayaQrFile == null && _mayaQrUrl == null) {
-        final dbPrefs = await _supabase.from('sellers').select('seller_preferences').eq('seller_user_id', currentUser.id).maybeSingle();
+        final dbPrefs = await _supabase
+            .from('sellers')
+            .select('seller_preferences')
+            .eq('seller_user_id', currentUser.id)
+            .maybeSingle();
         final prev = dbPrefs?['seller_preferences'];
         if (prev is Map && prev['maya_qr_image'] is String) {
           await _deleteFromBucket(prev['maya_qr_image'], 'digital_wallet_qr');
@@ -565,9 +870,11 @@ class _SellerProfileState extends State<SellerProfile> {
           "municipality": _selectedMunicipality,
           "barangay": _selectedBarangay,
           "street": _streetCtrl.text.trim(),
-          "zip_code": _selectedMunicipality != null ? _zipCodes[_selectedMunicipality] : null,
+          "zip_code": _selectedMunicipality != null
+              ? _zipCodes[_selectedMunicipality]
+              : null,
         },
-        "seller_contact_number": _contactCtrl.text.trim(),
+        "seller_contact_number": normalizedContact,
         "seller_email_address": _emailCtrl.text.trim(),
         "seller_messenger_link": _messengerCtrl.text.trim(),
         "seller_tags": _selectedTags,
@@ -575,6 +882,7 @@ class _SellerProfileState extends State<SellerProfile> {
         "seller_cover_image": _coverUrl,
         "seller_logo": _logoUrl,
         "seller_business_permit_image": _permitUrl,
+        "seller_operating_hours": _operatingHours,
         "seller_preferences": {
           "is_payment_first": _isPaymentFirst,
           "gcash_number": _gcashQrCtrl.text.trim(),
@@ -583,7 +891,8 @@ class _SellerProfileState extends State<SellerProfile> {
           "maya_qr_image": _mayaQrUrl,
           "fulfillment": _selectedFulfillment.toList(),
           "delivery_min_order": _deliveryMinOrder,
-        }
+          "verification_document_type": _verificationDocumentType,
+        },
       };
 
       // Only update type if it's not locked
@@ -600,14 +909,19 @@ class _SellerProfileState extends State<SellerProfile> {
         payload["seller_id"] = _sellerId; // Crucial for upsert matching
       }
 
-      if (_coordinates != null) payload["seller_store_coordinates"] = _coordinates;
+      if (_coordinates != null) {
+        payload["seller_store_coordinates"] = _coordinates;
+      }
 
       await _supabase.from('sellers').upsert(payload);
 
       if (mounted) {
         _loadingDialog.dismiss();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Store details saved successfully!"), backgroundColor: Color(0xFF10B981)),
+          const SnackBar(
+            content: Text("Store details saved successfully!"),
+            backgroundColor: Color(0xFF10B981),
+          ),
         );
         setState(() {
           if (_storeStatus == 'new') _storeStatus = 'in_review';
@@ -627,8 +941,65 @@ class _SellerProfileState extends State<SellerProfile> {
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message, style: const TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent),
+      SnackBar(
+        content: Text(message, style: const TextStyle(color: Colors.white)),
+        backgroundColor: Colors.redAccent,
+      ),
     );
+  }
+
+  Future<void> _hideShop() async {
+    if (_sellerId == null || _storeStatus != 'visible') return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hide shop?'),
+        content: const Text(
+          'Your shop and products will be removed from public marketplace listings. You can request visibility again through the marketplace administrator.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Hide Shop'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _supabase
+        .from('sellers')
+        .update({'seller_store_status': 'hidden'})
+        .eq('seller_id', _sellerId!);
+    if (mounted) {
+      setState(() => _storeStatus = 'hidden');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your shop is now hidden from customers.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _editOperatingHours() async {
+    if (_sellerId == null) return;
+    final updated = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SellerOperatingHours(
+          sellerId: _sellerId!,
+          initialHours: _operatingHours,
+        ),
+      ),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _operatingHours = updated);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Operating hours updated.')));
   }
 
   @override
@@ -642,8 +1013,45 @@ class _SellerProfileState extends State<SellerProfile> {
         centerTitle: false,
         title: const Text(
           "Store Profile",
-          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: -0.5),
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+            letterSpacing: -0.5,
+          ),
         ),
+        actions: [
+          PopupMenuButton<String>(
+            tooltip: 'More options',
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (value) {
+              if (value == 'hide') _hideShop();
+              if (value == 'hours') _editOperatingHours();
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'hide',
+                enabled: _storeStatus == 'visible',
+                child: const ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.visibility_off_outlined),
+                  title: Text('Hide Shop'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'hours',
+                enabled: _sellerId != null,
+                child: const ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.schedule_rounded),
+                  title: Text('Operating Hours'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(width: 8),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Container(color: cardBorder, height: 1),
@@ -652,123 +1060,164 @@ class _SellerProfileState extends State<SellerProfile> {
       body: _isLoadingData
           ? Center(child: CircularProgressIndicator(color: primaryBlue))
           : _showIntro
-              ? _buildIntroCarousel()
-              : Stack(
-        children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final bool isDesktop = Responsive.isDesktop(context);
-              final bool isTablet = Responsive.isTablet(context);
-              final bool isWide = isDesktop || isTablet;
-              final double maxW = isDesktop ? 1200 : (isTablet ? 900 : 640);
-              final EdgeInsets pad = EdgeInsets.symmetric(
-                horizontal: isDesktop ? 32 : (isTablet ? 24 : 16),
-                vertical: isDesktop ? 32 : 20,
-              );
+          ? _buildIntroCarousel()
+          : Stack(
+              children: [
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final bool isDesktop = Responsive.isDesktop(context);
+                    final bool isTablet = Responsive.isTablet(context);
+                    final bool isWide = isDesktop || isTablet;
+                    final double maxW = isDesktop
+                        ? 1200
+                        : (isTablet ? 900 : 640);
+                    final EdgeInsets pad = EdgeInsets.symmetric(
+                      horizontal: isDesktop ? 32 : (isTablet ? 24 : 16),
+                      vertical: isDesktop ? 32 : 20,
+                    );
 
-              return SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: maxW),
-                    child: Padding(
-                      padding: pad,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildStatusBanner(),
-                          _buildProhibitedItemsBanner(),
-
-                          if (_storeStatus == 'visible') ...[
-                            _buildSectionHeader("STORE MANAGEMENT", "Manage your products and view sales insights"),
-                            _buildManagementModules(),
-                            const SizedBox(height: 32),
-                          ],
-
-                          if (isWide)
-                            IntrinsicHeight(
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    flex: 5,
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                                      children: [
-                                        _buildSectionHeader("BRAND ASSETS", "Make your store stand out"),
-                                        _buildImagePickers(),
-                                        const SizedBox(height: 28),
-                                        _buildSectionHeader("VERIFICATION", "Upload legal documents to verify your business"),
-                                        _buildPermitUploadCard(),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 24),
-                                  Expanded(
-                                    flex: 7,
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                                      children: [
-                                        _buildSectionHeader("STORE DETAILS", "General information about your business"),
-                                        _buildBasicInfoCard(),
-                                        const SizedBox(height: 28),
-                                        _buildSectionHeader("FEATURES", "Select tags that apply to your store"),
-                                        _buildTagsCard(),
-                                        const SizedBox(height: 28),
-                                        _buildSectionHeader("PAYMENT SETTINGS", "Configure how you want to be paid"),
-                                        _buildPaymentSettingsCard(),
-                                        const SizedBox(height: 28),
-                                        _buildSubmitButton(),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          else
-                            Column(
+                    return SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: maxW),
+                          child: Padding(
+                            padding: pad,
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                _buildSectionHeader("BRAND ASSETS", "Make your store stand out"),
-                                _buildImagePickers(),
-                                const SizedBox(height: 28),
-                                _buildSectionHeader("STORE DETAILS", "General information about your business"),
-                                _buildBasicInfoCard(),
-                                const SizedBox(height: 28),
-                                _buildSectionHeader("FEATURES", "Select tags that apply to your store"),
-                                _buildTagsCard(),
-                                const SizedBox(height: 28),
-                                _buildSectionHeader("PAYMENT SETTINGS", "Configure how you want to be paid"),
-                                _buildPaymentSettingsCard(),
-                                const SizedBox(height: 28),
-                                _buildSectionHeader("VERIFICATION", "Upload legal documents to verify your business"),
-                                _buildPermitUploadCard(),
-                                const SizedBox(height: 36),
-                                _buildSubmitButton(),
-                                if (_sellerId != null) ...[
-                                  const SizedBox(height: 28),
-                                  _buildDangerZone(),
+                                _buildStatusBanner(),
+                                _buildProhibitedItemsBanner(),
+
+                                if (_storeStatus == 'visible') ...[
+                                  _buildSectionHeader(
+                                    "STORE MANAGEMENT",
+                                    "Manage your products and view sales insights",
+                                  ),
+                                  _buildManagementModules(),
+                                  const SizedBox(height: 32),
                                 ],
+
+                                if (isWide)
+                                  IntrinsicHeight(
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          flex: 5,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
+                                              _buildSectionHeader(
+                                                "BRAND ASSETS",
+                                                "Make your store stand out",
+                                              ),
+                                              _buildImagePickers(),
+                                              const SizedBox(height: 28),
+                                              _buildSectionHeader(
+                                                "VERIFICATION",
+                                                "Upload legal documents to verify your business",
+                                              ),
+                                              _buildPermitUploadCard(),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 24),
+                                        Expanded(
+                                          flex: 7,
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
+                                              _buildSectionHeader(
+                                                "STORE DETAILS",
+                                                "General information about your business",
+                                              ),
+                                              _buildBasicInfoCard(),
+                                              const SizedBox(height: 28),
+                                              _buildSectionHeader(
+                                                "FEATURES",
+                                                "Select tags that apply to your store",
+                                              ),
+                                              _buildTagsCard(),
+                                              const SizedBox(height: 28),
+                                              _buildSectionHeader(
+                                                "PAYMENT SETTINGS",
+                                                "Configure how you want to be paid",
+                                              ),
+                                              _buildPaymentSettingsCard(),
+                                              const SizedBox(height: 28),
+                                              _buildSubmitButton(),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      _buildSectionHeader(
+                                        "BRAND ASSETS",
+                                        "Make your store stand out",
+                                      ),
+                                      _buildImagePickers(),
+                                      const SizedBox(height: 28),
+                                      _buildSectionHeader(
+                                        "STORE DETAILS",
+                                        "General information about your business",
+                                      ),
+                                      _buildBasicInfoCard(),
+                                      const SizedBox(height: 28),
+                                      _buildSectionHeader(
+                                        "FEATURES",
+                                        "Select tags that apply to your store",
+                                      ),
+                                      _buildTagsCard(),
+                                      const SizedBox(height: 28),
+                                      _buildSectionHeader(
+                                        "PAYMENT SETTINGS",
+                                        "Configure how you want to be paid",
+                                      ),
+                                      _buildPaymentSettingsCard(),
+                                      const SizedBox(height: 28),
+                                      _buildSectionHeader(
+                                        "VERIFICATION",
+                                        "Upload legal documents to verify your business",
+                                      ),
+                                      _buildPermitUploadCard(),
+                                      const SizedBox(height: 36),
+                                      _buildSubmitButton(),
+                                      if (_sellerId != null) ...[
+                                        const SizedBox(height: 28),
+                                        _buildDangerZone(),
+                                      ],
+                                    ],
+                                  ),
+
+                                const SizedBox(height: 40),
                               ],
                             ),
-
-                          const SizedBox(height: 40),
-                        ],
+                          ),
+                        ),
                       ),
+                    );
+                  },
+                ),
+
+                if (_isSaving)
+                  Container(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    child: Center(
+                      child: CircularProgressIndicator(color: primaryBlue),
                     ),
                   ),
-                ),
-              );
-            },
-          ),
-
-          if (_isSaving)
-            Container(
-              color: Colors.white.withValues(alpha: 0.5),
-              child: Center(child: CircularProgressIndicator(color: primaryBlue)),
+              ],
             ),
-        ],
-      ),
     );
   }
 
@@ -790,7 +1239,10 @@ class _SellerProfileState extends State<SellerProfile> {
         children: [
           Container(
             padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: dangerColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+            decoration: BoxDecoration(
+              color: dangerColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
             child: Icon(Icons.gpp_bad_rounded, color: dangerColor, size: 20),
           ),
           const SizedBox(width: 12),
@@ -798,14 +1250,25 @@ class _SellerProfileState extends State<SellerProfile> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("Prohibited Items",
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: dangerColor)),
+                Text(
+                  "Prohibited Items",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: dangerColor,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Text(
-                  "Selling illegal or regulated items is strictly prohibited — including drugs, weapons and guns, "
+                  "Selling illegal or regulated items is strictly prohibited â€” including drugs, weapons and guns, "
                   "vapes and e-cigarettes, alcohol to minors, counterfeit goods, and other unlawful products. "
                   "Violations will result in store suspension and may be reported to authorities.",
-                  style: TextStyle(fontSize: 12.5, color: textSecondary, height: 1.5, fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: textSecondary,
+                    height: 1.5,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ],
             ),
@@ -828,19 +1291,22 @@ class _SellerProfileState extends State<SellerProfile> {
         bannerColor = warningColor;
         bannerIcon = Icons.hourglass_empty_rounded;
         bannerTitle = "Application in Review";
-        bannerMessage = "Your store details and business permit are currently being reviewed by admins. Editing is disabled until a decision is made.";
+        bannerMessage =
+            "Your store details and business permit are currently being reviewed by admins. Editing is disabled until a decision is made.";
         break;
       case 'banned':
         bannerColor = dangerColor;
         bannerIcon = Icons.gavel_rounded;
         bannerTitle = "Store Suspended";
-        bannerMessage = "Your store has been suspended. Please contact support for more information.";
+        bannerMessage =
+            "Your store has been suspended. Please contact support for more information.";
         break;
       case 'visible':
         bannerColor = successColor;
         bannerIcon = Icons.check_circle_outline_rounded;
         bannerTitle = "Store is Live";
-        bannerMessage = "Your store is verified and currently visible to customers. You can update your details below.";
+        bannerMessage =
+            "Your store is verified and currently visible to customers. You can update your details below.";
         break;
       default:
         return const SizedBox.shrink();
@@ -863,12 +1329,26 @@ class _SellerProfileState extends State<SellerProfile> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(bannerTitle, style: TextStyle(color: bannerColor, fontWeight: FontWeight.w800, fontSize: 14)),
+                Text(
+                  bannerTitle,
+                  style: TextStyle(
+                    color: bannerColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text(bannerMessage, style: TextStyle(color: bannerColor.withValues(alpha: 0.9), fontSize: 13, height: 1.4)),
+                Text(
+                  bannerMessage,
+                  style: TextStyle(
+                    color: bannerColor.withValues(alpha: 0.9),
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
+                ),
               ],
             ),
-          )
+          ),
         ],
       ),
     );
@@ -878,13 +1358,21 @@ class _SellerProfileState extends State<SellerProfile> {
     final modules = <_ManagementModule>[
       _ManagementModule(
         title: "Analytics",
-        subtitle: "Coming soon",
+        subtitle: "Traffic, sales and products",
         icon: Icons.insights_rounded,
         color: const Color(0xFF8B5CF6),
-        disabled: true,
-        onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Analytics is coming soon."), duration: Duration(seconds: 2)),
-        ),
+        onTap: () {
+          if (_sellerId == null) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => StoreAnalytics(
+                sellerId: _sellerId!,
+                storeName: _storeNameCtrl.text.trim(),
+              ),
+            ),
+          );
+        },
       ),
       _ManagementModule(
         title: "Vouchers",
@@ -893,7 +1381,10 @@ class _SellerProfileState extends State<SellerProfile> {
         color: const Color(0xFFDB2777),
         disabled: true,
         onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Vouchers is coming soon."), duration: Duration(seconds: 2)),
+          const SnackBar(
+            content: Text("Vouchers is coming soon."),
+            duration: Duration(seconds: 2),
+          ),
         ),
       ),
       _ManagementModule(
@@ -903,7 +1394,12 @@ class _SellerProfileState extends State<SellerProfile> {
         color: const Color(0xFF10B981),
         onTap: () async {
           if (_sellerId == null) return;
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => StoreItemList(sellerId: _sellerId!)));
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => StoreItemList(sellerId: _sellerId!),
+            ),
+          );
           _fetchCounts();
         },
       ),
@@ -914,19 +1410,29 @@ class _SellerProfileState extends State<SellerProfile> {
         color: const Color(0xFFEA580C),
         onTap: () async {
           if (_sellerId == null) return;
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => DeliveryRateList(sellerId: _sellerId!)));
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DeliveryRateList(sellerId: _sellerId!),
+            ),
+          );
           _fetchSellerData();
         },
       ),
       _ManagementModule(
         title: "Messages",
-        subtitle: _unreadMessages > 0 ? "$_unreadMessages new" : "Chat with buyers",
+        subtitle: _unreadMessages > 0
+            ? "$_unreadMessages new"
+            : "Chat with buyers",
         icon: Icons.forum_rounded,
         color: const Color(0xFFEE4D2D),
         badge: _unreadMessages,
         onTap: () async {
           if (_sellerId == null) return;
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => ChatInbox(sellerId: _sellerId!)));
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => ChatInbox(sellerId: _sellerId!)),
+          );
           _fetchCounts();
         },
       ),
@@ -938,7 +1444,12 @@ class _SellerProfileState extends State<SellerProfile> {
         badge: _newOrders,
         onTap: () async {
           if (_sellerId == null) return;
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => SellerOrders(sellerId: _sellerId!)));
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SellerOrders(sellerId: _sellerId!),
+            ),
+          );
           _fetchCounts();
         },
       ),
@@ -948,7 +1459,13 @@ class _SellerProfileState extends State<SellerProfile> {
       builder: (context, constraints) {
         final w = constraints.maxWidth;
         // Pick column count so cards stay tappable & evenly aligned.
-        final int cols = w < 340 ? 1 : w < 560 ? 2 : w < 900 ? 4 : 4;
+        final int cols = w < 340
+            ? 1
+            : w < 560
+            ? 2
+            : w < 900
+            ? 4
+            : 4;
         const double spacing = 12;
         // Compute aspect ratio so the card always fits its content without overflow.
         final double cardWidth = (w - spacing * (cols - 1)) / cols;
@@ -1024,7 +1541,11 @@ class _SellerProfileState extends State<SellerProfile> {
               child: Text(
                 badge > 99 ? "99+" : "$badge",
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w900),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ),
@@ -1039,14 +1560,23 @@ class _SellerProfileState extends State<SellerProfile> {
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontWeight: FontWeight.w800, color: primaryDark, fontSize: titleSize, letterSpacing: -0.3),
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: primaryDark,
+            fontSize: titleSize,
+            letterSpacing: -0.3,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
           subtitle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontWeight: FontWeight.w600, color: textSecondary, fontSize: subSize),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: textSecondary,
+            fontSize: subSize,
+          ),
         ),
       ],
     );
@@ -1058,17 +1588,18 @@ class _SellerProfileState extends State<SellerProfile> {
           iconBox,
           const SizedBox(width: 14),
           Expanded(child: textBlock),
-          Icon(Icons.arrow_forward_ios_rounded, size: 14, color: textSecondary.withValues(alpha: 0.5)),
+          Icon(
+            Icons.arrow_forward_ios_rounded,
+            size: 14,
+            color: textSecondary.withValues(alpha: 0.5),
+          ),
         ],
       );
     } else {
       body = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          iconBox,
-          textBlock,
-        ],
+        children: [iconBox, textBlock],
       );
     }
 
@@ -1080,7 +1611,11 @@ class _SellerProfileState extends State<SellerProfile> {
         boxShadow: disabled
             ? null
             : [
-                BoxShadow(color: primaryDark.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4)),
+                BoxShadow(
+                  color: primaryDark.withValues(alpha: 0.03),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
               ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -1110,12 +1645,21 @@ class _SellerProfileState extends State<SellerProfile> {
         children: [
           Text(
             title,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textSecondary, letterSpacing: 1.5),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: textSecondary,
+              letterSpacing: 1.5,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             subtitle,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: textSecondary.withValues(alpha: 0.8)),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: textSecondary.withValues(alpha: 0.8),
+            ),
           ),
         ],
       ),
@@ -1123,8 +1667,16 @@ class _SellerProfileState extends State<SellerProfile> {
   }
 
   Widget _buildImagePickers() {
-    final coverProvider = _getImageProvider(_coverFile, _coverUrl, Icons.add_photo_alternate_rounded);
-    final logoProvider = _getImageProvider(_logoFile, _logoUrl, Icons.storefront_rounded);
+    final coverProvider = _getImageProvider(
+      _coverFile,
+      _coverUrl,
+      Icons.add_photo_alternate_rounded,
+    );
+    final logoProvider = _getImageProvider(
+      _logoFile,
+      _logoUrl,
+      Icons.storefront_rounded,
+    );
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1136,7 +1688,10 @@ class _SellerProfileState extends State<SellerProfile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Cover Photo", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const Text(
+            "Cover Photo",
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+          ),
           const SizedBox(height: 12),
           GestureDetector(
             onTap: () => _pickImage('cover'),
@@ -1147,23 +1702,39 @@ class _SellerProfileState extends State<SellerProfile> {
                 color: _isReadOnly ? bgColor.withValues(alpha: 0.5) : bgColor,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: cardBorder, width: 2),
-                image: coverProvider != null ? DecorationImage(image: coverProvider, fit: BoxFit.cover) : null,
+                image: coverProvider != null
+                    ? DecorationImage(image: coverProvider, fit: BoxFit.cover)
+                    : null,
               ),
               child: coverProvider == null
                   ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.add_photo_alternate_rounded, color: textSecondary.withValues(alpha: 0.5), size: 32),
-                  const SizedBox(height: 8),
-                  Text("Upload Cover", style: TextStyle(color: textSecondary, fontWeight: FontWeight.w600, fontSize: 12)),
-                ],
-              )
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.add_photo_alternate_rounded,
+                          color: textSecondary.withValues(alpha: 0.5),
+                          size: 32,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          "Upload Cover",
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    )
                   : null,
             ),
           ),
           const SizedBox(height: 24),
 
-          const Text("Store Logo", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const Text(
+            "Store Logo",
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+          ),
           const SizedBox(height: 12),
           GestureDetector(
             onTap: () => _pickImage('logo'),
@@ -1174,10 +1745,16 @@ class _SellerProfileState extends State<SellerProfile> {
                 color: _isReadOnly ? bgColor.withValues(alpha: 0.5) : bgColor,
                 shape: BoxShape.circle,
                 border: Border.all(color: cardBorder, width: 2),
-                image: logoProvider != null ? DecorationImage(image: logoProvider, fit: BoxFit.cover) : null,
+                image: logoProvider != null
+                    ? DecorationImage(image: logoProvider, fit: BoxFit.cover)
+                    : null,
               ),
               child: logoProvider == null
-                  ? Icon(Icons.storefront_rounded, color: textSecondary.withValues(alpha: 0.5), size: 28)
+                  ? Icon(
+                      Icons.storefront_rounded,
+                      color: textSecondary.withValues(alpha: 0.5),
+                      size: 28,
+                    )
                   : null,
             ),
           ),
@@ -1189,14 +1766,29 @@ class _SellerProfileState extends State<SellerProfile> {
   InputDecoration _inputDecoration(String label, IconData icon) {
     return InputDecoration(
       labelText: label,
-      labelStyle: TextStyle(color: textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
+      labelStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
       prefixIcon: Icon(icon, color: textSecondary, size: 20),
       filled: true,
-      fillColor: (_isReadOnly || _isStoreTypeLocked) ? cardBorder.withValues(alpha: 0.3) : bgColor,
+      fillColor: (_isReadOnly || _isStoreTypeLocked)
+          ? cardBorder.withValues(alpha: 0.3)
+          : bgColor,
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder)),
-      disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder.withValues(alpha: 0.5))),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: cardBorder),
+      ),
+      disabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: cardBorder.withValues(alpha: 0.5)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: primaryBlue, width: 1.5),
+      ),
     );
   }
 
@@ -1211,28 +1803,47 @@ class _SellerProfileState extends State<SellerProfile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildTextField(controller: _storeNameCtrl, label: "Store Name", icon: Icons.store_mall_directory_outlined),
+          _buildTextField(
+            controller: _storeNameCtrl,
+            label: "Store Name",
+            icon: Icons.store_mall_directory_outlined,
+          ),
           const SizedBox(height: 16),
 
           DropdownButtonFormField<String>(
-            value: _selectedStoreType,
+            initialValue: _selectedStoreType,
             isExpanded: true,
-            hint: Text("Select Store Type", style: TextStyle(color: textSecondary, fontSize: 14, fontWeight: FontWeight.w500)),
+            hint: Text(
+              "Select Store Type",
+              style: TextStyle(
+                color: textSecondary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
             icon: Icon(Icons.keyboard_arrow_down_rounded, color: textSecondary),
             items: _availableStoreTypes.map((type) {
               return DropdownMenuItem(
                 value: type,
-                child: Text(type, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w600, color: primaryDark, fontSize: 15)),
+                child: Text(
+                  type,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: primaryDark,
+                    fontSize: 15,
+                  ),
+                ),
               );
             }).toList(),
             // Disable dropdown if Read Only OR if Store Type is locked (i.e. already verified)
             onChanged: (_isReadOnly || _isStoreTypeLocked)
                 ? null
                 : (val) {
-              setState(() {
-                _selectedStoreType = val;
-              });
-            },
+                    setState(() {
+                      _selectedStoreType = val;
+                    });
+                  },
             decoration: _inputDecoration("Store Type", Icons.category_outlined),
           ),
           if (_isStoreTypeLocked)
@@ -1240,149 +1851,274 @@ class _SellerProfileState extends State<SellerProfile> {
               padding: const EdgeInsets.only(top: 6, left: 4),
               child: Row(
                 children: [
-                  Icon(Icons.lock_outline_rounded, size: 12, color: textSecondary),
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    size: 12,
+                    color: textSecondary,
+                  ),
                   const SizedBox(width: 4),
-                  Text("Store type cannot be changed after creation.", style: TextStyle(fontSize: 11, color: textSecondary)),
+                  Text(
+                    "Store type cannot be changed after creation.",
+                    style: TextStyle(fontSize: 11, color: textSecondary),
+                  ),
                 ],
               ),
             ),
 
           const SizedBox(height: 16),
-          _buildTextField(controller: _descriptionCtrl, label: "Description", icon: Icons.subject_rounded, maxLines: 3),
+          _buildTextField(
+            controller: _descriptionCtrl,
+            label: "Description",
+            icon: Icons.subject_rounded,
+            maxLines: 3,
+          ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: _selectedProvince,
+            initialValue: _selectedProvince,
             hint: const Text("Province"),
-            items: _provinces.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
-            onChanged: (_isReadOnly || _storeStatus == 'visible') ? null : (val) => setState(() { _selectedProvince = val; _selectedMunicipality = null; _selectedBarangay = null; }),
+            items: _provinces
+                .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                .toList(),
+            onChanged: (_isReadOnly || _storeStatus == 'visible')
+                ? null
+                : (val) => setState(() {
+                    _selectedProvince = val;
+                    _selectedMunicipality = null;
+                    _selectedBarangay = null;
+                  }),
             decoration: _inputDecoration("Province", Icons.map_outlined),
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: _selectedMunicipality,
+            initialValue: _selectedMunicipality,
             hint: const Text("Municipality"),
-            items: (_municipalities[_selectedProvince] ?? []).map((m) => DropdownMenuItem(value: m, child: Text(m))).toList(),
-            onChanged: (_isReadOnly || _storeStatus == 'visible') ? null : (val) => setState(() { _selectedMunicipality = val; _selectedBarangay = null; }),
-            decoration: _inputDecoration("Municipality", Icons.location_city_outlined),
+            items: (_municipalities[_selectedProvince] ?? [])
+                .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                .toList(),
+            onChanged: (_isReadOnly || _storeStatus == 'visible')
+                ? null
+                : (val) => setState(() {
+                    _selectedMunicipality = val;
+                    _selectedBarangay = null;
+                  }),
+            decoration: _inputDecoration(
+              "Municipality",
+              Icons.location_city_outlined,
+            ),
           ),
           if (_storeStatus == 'visible') ...[
             const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(children: [
-                Icon(Icons.lock_outline_rounded, size: 12, color: textSecondary),
-                const SizedBox(width: 4),
-                Expanded(child: Text("Province and Municipality cannot be changed once your store is visible.", style: TextStyle(fontSize: 11, color: textSecondary))),
-              ]),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    size: 12,
+                    color: textSecondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      "Province and Municipality cannot be changed once your store is visible.",
+                      style: TextStyle(fontSize: 11, color: textSecondary),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
           const SizedBox(height: 16),
           DropdownButtonFormField<String>(
-            value: _selectedBarangay,
+            initialValue: _selectedBarangay,
             hint: const Text("Barangay"),
-            items: (_barangays[_selectedMunicipality] ?? []).map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
-            onChanged: _isReadOnly ? null : (val) => setState(() => _selectedBarangay = val),
+            items: (_barangays[_selectedMunicipality] ?? [])
+                .map((b) => DropdownMenuItem(value: b, child: Text(b)))
+                .toList(),
+            onChanged: _isReadOnly
+                ? null
+                : (val) => setState(() => _selectedBarangay = val),
             decoration: _inputDecoration("Barangay", Icons.home_outlined),
           ),
           const SizedBox(height: 16),
-          _buildTextField(controller: _streetCtrl, label: "Street/Purok (Optional)", icon: Icons.streetview_outlined),
+          _buildTextField(
+            controller: _streetCtrl,
+            label: "Street/Purok (Optional)",
+            icon: Icons.streetview_outlined,
+          ),
           const SizedBox(height: 16),
 
-          Builder(builder: (_) {
-            final double? lat = (_coordinates?['latitude'] as num?)?.toDouble();
-            final double? lng = (_coordinates?['longitude'] as num?)?.toDouble();
-            final bool hasCoords = lat != null && lng != null;
+          Builder(
+            builder: (_) {
+              final double? lat = (_coordinates?['latitude'] as num?)
+                  ?.toDouble();
+              final double? lng = (_coordinates?['longitude'] as num?)
+                  ?.toDouble();
+              final bool hasCoords = lat != null && lng != null;
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _isReadOnly ? null : () async {
-                      final picked = await Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => MapLocationPicker(
-                            initialLocation: hasCoords ? LatLng(lat, lng) : null,
-                          ),
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isReadOnly
+                          ? null
+                          : () async {
+                              final picked = await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MapLocationPicker(
+                                    initialLocation: hasCoords
+                                        ? LatLng(lat, lng)
+                                        : null,
+                                  ),
+                                ),
+                              );
+                              if (picked is LatLng) {
+                                setState(() {
+                                  _coordinates = {
+                                    "latitude": picked.latitude,
+                                    "longitude": picked.longitude,
+                                  };
+                                });
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Coordinates pinned!"),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                      icon: Icon(
+                        Icons.pin_drop_rounded,
+                        color: _isReadOnly ? textSecondary : primaryBlue,
+                        size: 18,
+                      ),
+                      label: Text(
+                        hasCoords ? "Change Location" : "Pin Location on Map",
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _isReadOnly
+                            ? textSecondary
+                            : primaryBlue,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: BorderSide(
+                          color: _isReadOnly
+                              ? cardBorder
+                              : primaryBlue.withValues(alpha: 0.3),
                         ),
-                      );
-                      if (picked is LatLng) {
-                        setState(() {
-                          _coordinates = {"latitude": picked.latitude, "longitude": picked.longitude};
-                        });
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Coordinates pinned!")));
-                        }
-                      }
-                    },
-                    icon: Icon(Icons.pin_drop_rounded, color: _isReadOnly ? textSecondary : primaryBlue, size: 18),
-                    label: Text(hasCoords ? "Change Location" : "Pin Location on Map"),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _isReadOnly ? textSecondary : primaryBlue,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      side: BorderSide(color: _isReadOnly ? cardBorder : primaryBlue.withValues(alpha: 0.3)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                if (hasCoords) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: primaryBlue.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: primaryBlue.withValues(alpha: 0.18)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.my_location_rounded, color: primaryBlue, size: 16),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Selected Coordinates",
-                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: primaryBlue, letterSpacing: 0.6),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                "${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}",
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: primaryDark, letterSpacing: -0.2),
-                              ),
-                            ],
-                          ),
+                  if (hasCoords) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: primaryBlue.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: primaryBlue.withValues(alpha: 0.18),
                         ),
-                        if (!_isReadOnly)
-                          InkWell(
-                            onTap: () => setState(() => _coordinates = null),
-                            borderRadius: BorderRadius.circular(8),
-                            child: Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: Icon(Icons.close_rounded, size: 16, color: textSecondary),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.my_location_rounded,
+                            color: primaryBlue,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Selected Coordinates",
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w900,
+                                    color: primaryBlue,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  "${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: primaryDark,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                      ],
+                          if (!_isReadOnly)
+                            InkWell(
+                              onTap: () => setState(() => _coordinates = null),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 16,
+                                  color: textSecondary,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
-              ],
-            );
-          }),
+              );
+            },
+          ),
 
           const Divider(height: 32),
 
-          const Text("Contact Information", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: Color(0xFF0F172A))),
+          const Text(
+            "Contact Information",
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+              color: Color(0xFF0F172A),
+            ),
+          ),
           const SizedBox(height: 12),
 
-          _buildTextField(controller: _contactCtrl, label: "Contact Number", icon: Icons.phone_rounded),
+          _buildTextField(
+            controller: _contactCtrl,
+            label: "Contact Number",
+            icon: Icons.phone_rounded,
+            hintText: "09123456789",
+            keyboardType: TextInputType.phone,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9+\-\s()]')),
+            ],
+          ),
           const SizedBox(height: 16),
-          _buildTextField(controller: _emailCtrl, label: "Email Address", icon: Icons.email_outlined),
+          _buildTextField(
+            controller: _emailCtrl,
+            label: "Email Address",
+            icon: Icons.email_outlined,
+          ),
           const SizedBox(height: 16),
-          _buildTextField(controller: _messengerCtrl, label: "Messenger Link (Optional)", icon: Icons.message_outlined),
+          _buildTextField(
+            controller: _messengerCtrl,
+            label: "Messenger Link (Optional)",
+            icon: Icons.message_outlined,
+          ),
         ],
       ),
     );
@@ -1399,83 +2135,162 @@ class _SellerProfileState extends State<SellerProfile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Delivery Options", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const Text(
+            "Delivery Options",
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+          ),
           const SizedBox(height: 6),
-          Text("Select how customers can receive their orders.", style: TextStyle(fontSize: 12, color: textSecondary)),
+          Text(
+            "Select how customers can receive their orders.",
+            style: TextStyle(fontSize: 12, color: textSecondary),
+          ),
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: _availableFulfillment.map((f) {
               final selected = _selectedFulfillment.contains(f);
+              final deliveryDisabled = f == "Delivery" && _rateCount == 0;
+              final disabled = _isReadOnly || deliveryDisabled;
               return FilterChip(
-                label: Text(f, style: TextStyle(fontWeight: FontWeight.w700, color: selected ? Colors.white : primaryDark, fontSize: 12.5)),
-                selected: selected,
-                showCheckmark: false,
-                selectedColor: primaryBlue,
-                backgroundColor: const Color(0xFFF1F5F9),
-                side: BorderSide(color: selected ? primaryBlue : cardBorder),
-                avatar: Icon(f == "Delivery" ? Icons.local_shipping_rounded : Icons.storefront_rounded, size: 16, color: selected ? Colors.white : primaryDark),
-                onSelected: _isReadOnly ? null : (val) {
-                  setState(() {
-                    if (val) {
-                      _selectedFulfillment.add(f);
-                    } else {
-                      _selectedFulfillment.remove(f);
-                    }
-                  });
-                },
-              );
-            }).toList(),
-          ),
-          const Divider(height: 32),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text("Payment First Policy", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-            subtitle: Text("Require customers to pay before order processing.", style: TextStyle(fontSize: 12, color: textSecondary)),
-            value: _isPaymentFirst,
-            activeColor: primaryBlue,
-            onChanged: _isReadOnly ? null : (val) => setState(() {
-              _isPaymentFirst = val;
-              if (val) {
-                _selectedPaymentMethods.remove("Cash on Delivery");
-                _selectedPaymentMethods.remove("In-Store Payment");
-              }
-            }),
-          ),
-          const Divider(height: 32),
-          const Text("Accepted Payment Methods", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
-          const SizedBox(height: 6),
-          Text("Select all that you accept. GCash/Maya require a QR code below.", style: TextStyle(fontSize: 12, color: textSecondary)),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _availablePaymentMethods.map((m) {
-              final selected = _selectedPaymentMethods.contains(m);
-              final bool disabled = _isReadOnly || (_isPaymentFirst && (m == "Cash on Delivery" || m == "In-Store Payment"));
-              return FilterChip(
-                label: Text(m, style: TextStyle(fontWeight: FontWeight.w700, color: disabled ? textSecondary : (selected ? Colors.white : primaryDark), fontSize: 12.5)),
+                label: Text(
+                  f,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: disabled
+                        ? textSecondary
+                        : (selected ? Colors.white : primaryDark),
+                    fontSize: 12.5,
+                  ),
+                ),
                 selected: selected,
                 showCheckmark: false,
                 selectedColor: primaryBlue,
                 backgroundColor: const Color(0xFFF1F5F9),
                 disabledColor: const Color(0xFFE5E7EB),
                 side: BorderSide(color: selected ? primaryBlue : cardBorder),
-                onSelected: disabled ? null : (val) {
-                  setState(() {
+                avatar: Icon(
+                  f == "Delivery"
+                      ? Icons.local_shipping_rounded
+                      : Icons.storefront_rounded,
+                  size: 16,
+                  color: disabled
+                      ? textSecondary
+                      : (selected ? Colors.white : primaryDark),
+                ),
+                onSelected: disabled
+                    ? null
+                    : (val) {
+                        setState(() {
+                          if (val) {
+                            _selectedFulfillment.add(f);
+                          } else {
+                            _selectedFulfillment.remove(f);
+                          }
+                        });
+                      },
+              );
+            }).toList(),
+          ),
+          if (_rateCount == 0) ...[
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 16, color: warningColor),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    "Add at least one delivery rate to enable Delivery.",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const Divider(height: 32),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+              "Payment First Policy",
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            ),
+            subtitle: Text(
+              "Require customers to pay before order processing.",
+              style: TextStyle(fontSize: 12, color: textSecondary),
+            ),
+            value: _isPaymentFirst,
+            activeThumbColor: primaryBlue,
+            onChanged: _isReadOnly
+                ? null
+                : (val) => setState(() {
+                    _isPaymentFirst = val;
                     if (val) {
-                      _selectedPaymentMethods.add(m);
-                    } else {
-                      _selectedPaymentMethods.remove(m);
+                      _selectedPaymentMethods.remove("Cash on Delivery");
+                      _selectedPaymentMethods.remove("In-Store Payment");
                     }
-                  });
-                },
+                  }),
+          ),
+          const Divider(height: 32),
+          const Text(
+            "Accepted Payment Methods",
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "Select all that you accept. GCash/Maya require a QR code below.",
+            style: TextStyle(fontSize: 12, color: textSecondary),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _availablePaymentMethods.map((m) {
+              final selected = _selectedPaymentMethods.contains(m);
+              final bool disabled =
+                  _isReadOnly ||
+                  (_isPaymentFirst &&
+                      (m == "Cash on Delivery" || m == "In-Store Payment"));
+              return FilterChip(
+                label: Text(
+                  m,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: disabled
+                        ? textSecondary
+                        : (selected ? Colors.white : primaryDark),
+                    fontSize: 12.5,
+                  ),
+                ),
+                selected: selected,
+                showCheckmark: false,
+                selectedColor: primaryBlue,
+                backgroundColor: const Color(0xFFF1F5F9),
+                disabledColor: const Color(0xFFE5E7EB),
+                side: BorderSide(color: selected ? primaryBlue : cardBorder),
+                onSelected: disabled
+                    ? null
+                    : (val) {
+                        setState(() {
+                          if (val) {
+                            _selectedPaymentMethods.add(m);
+                          } else {
+                            _selectedPaymentMethods.remove(m);
+                          }
+                        });
+                      },
               );
             }).toList(),
           ),
           const Divider(height: 32),
-          const Text("Digital Wallets (GCash/Maya)", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const Text(
+            "Digital Wallets (GCash/Maya)",
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+          ),
           const SizedBox(height: 12),
           _buildTextField(
             controller: _gcashQrCtrl,
@@ -1537,11 +2352,17 @@ class _SellerProfileState extends State<SellerProfile> {
               color: _isReadOnly ? bgColor.withValues(alpha: 0.5) : bgColor,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: cardBorder, width: 1.5),
-              image: hasImage ? DecorationImage(image: provider, fit: BoxFit.cover) : null,
+              image: hasImage
+                  ? DecorationImage(image: provider, fit: BoxFit.cover)
+                  : null,
             ),
             child: hasImage
                 ? null
-                : Icon(Icons.qr_code_2_rounded, color: textSecondary.withValues(alpha: 0.6), size: 32),
+                : Icon(
+                    Icons.qr_code_2_rounded,
+                    color: textSecondary.withValues(alpha: 0.6),
+                    size: 32,
+                  ),
           ),
         ),
         const SizedBox(width: 14),
@@ -1549,7 +2370,14 @@ class _SellerProfileState extends State<SellerProfile> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: primaryDark)),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  color: primaryDark,
+                ),
+              ),
               const SizedBox(height: 4),
               Text(
                 hasImage ? "Tap image to change" : "Upload your QR code image",
@@ -1561,26 +2389,64 @@ class _SellerProfileState extends State<SellerProfile> {
                   if (!_isReadOnly)
                     OutlinedButton.icon(
                       onPressed: onPick,
-                      icon: Icon(hasImage ? Icons.swap_horiz_rounded : Icons.upload_rounded, size: 14, color: primaryBlue),
-                      label: Text(hasImage ? "Replace" : "Upload", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: primaryBlue)),
+                      icon: Icon(
+                        hasImage
+                            ? Icons.swap_horiz_rounded
+                            : Icons.upload_rounded,
+                        size: 14,
+                        color: primaryBlue,
+                      ),
+                      label: Text(
+                        hasImage ? "Replace" : "Upload",
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: primaryBlue,
+                        ),
+                      ),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         minimumSize: const Size(0, 30),
-                        side: BorderSide(color: primaryBlue.withValues(alpha: 0.4)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        side: BorderSide(
+                          color: primaryBlue.withValues(alpha: 0.4),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   if (hasImage && !_isReadOnly) ...[
                     const SizedBox(width: 8),
                     OutlinedButton.icon(
                       onPressed: onRemove,
-                      icon: Icon(Icons.delete_outline_rounded, size: 14, color: dangerColor),
-                      label: Text("Remove", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: dangerColor)),
+                      icon: Icon(
+                        Icons.delete_outline_rounded,
+                        size: 14,
+                        color: dangerColor,
+                      ),
+                      label: Text(
+                        "Remove",
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: dangerColor,
+                        ),
+                      ),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         minimumSize: const Size(0, 30),
-                        side: BorderSide(color: dangerColor.withValues(alpha: 0.4)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        side: BorderSide(
+                          color: dangerColor.withValues(alpha: 0.4),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   ],
@@ -1607,15 +2473,28 @@ class _SellerProfileState extends State<SellerProfile> {
         children: _availableTags.map((tag) {
           final isSelected = _selectedTags.contains(tag);
           return FilterChip(
-            label: Text(tag, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: isSelected ? Colors.white : primaryDark)),
+            label: Text(
+              tag,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+                color: isSelected ? Colors.white : primaryDark,
+              ),
+            ),
             selected: isSelected,
             onSelected: _isReadOnly ? null : (_) => _toggleTag(tag),
-            backgroundColor: _isReadOnly ? bgColor.withValues(alpha: 0.5) : bgColor,
+            backgroundColor: _isReadOnly
+                ? bgColor.withValues(alpha: 0.5)
+                : bgColor,
             selectedColor: _isReadOnly ? textSecondary : primaryDark,
             checkmarkColor: Colors.white,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
-              side: BorderSide(color: isSelected ? (_isReadOnly ? textSecondary : primaryDark) : cardBorder),
+              side: BorderSide(
+                color: isSelected
+                    ? (_isReadOnly ? textSecondary : primaryDark)
+                    : cardBorder,
+              ),
             ),
           );
         }).toList(),
@@ -1623,8 +2502,110 @@ class _SellerProfileState extends State<SellerProfile> {
     );
   }
 
+  String _verificationDocumentLabel() {
+    return _verificationDocumentType == 'valid_id'
+        ? 'Valid ID'
+        : 'Business Permit / DTI';
+  }
+
+  String _verificationDocumentDescription() {
+    return _verificationDocumentType == 'valid_id'
+        ? 'Upload a clear image of one government-issued ID. This helps admins verify the seller identity before approval.'
+        : 'Upload a clear image of your official business permit or DTI registration. This helps admins verify the legitimacy of your store.';
+  }
+
+  IconData _verificationDocumentIcon() {
+    return _verificationDocumentType == 'valid_id'
+        ? Icons.badge_rounded
+        : Icons.assignment_turned_in_rounded;
+  }
+
+  Widget _buildVerificationChoice({
+    required String value,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+  }) {
+    final isSelected = _verificationDocumentType == value;
+    final Color accent = isSelected ? primaryBlue : textSecondary;
+
+    return InkWell(
+      onTap: _isReadOnly
+          ? null
+          : () => setState(() => _verificationDocumentType = value),
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? primaryBlue.withValues(alpha: 0.08)
+              : bgColor.withValues(alpha: _isReadOnly ? 0.45 : 1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? primaryBlue : cardBorder,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: accent, size: 21),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: primaryDark,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: textSecondary,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              isSelected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_off_rounded,
+              color: isSelected ? primaryBlue : textSecondary,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildPermitUploadCard() {
-    final permitProvider = _getImageProvider(_permitFile, _permitUrl, Icons.document_scanner_rounded);
+    final permitProvider = _getImageProvider(
+      _permitFile,
+      _permitUrl,
+      _verificationDocumentIcon(),
+    );
+    final documentLabel = _verificationDocumentLabel();
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1640,17 +2621,54 @@ class _SellerProfileState extends State<SellerProfile> {
             children: [
               Icon(Icons.verified_user_rounded, color: primaryBlue, size: 20),
               const SizedBox(width: 8),
-              const Text("Business Permit / DTI", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+              Expanded(
+                child: Text(
+                  "Verification Document",
+                  style: TextStyle(
+                    color: primaryDark,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            "Upload a clear image of your official business permit or DTI registration. This ensures the legitimacy of stores on the platform.",
+            "Choose the document you want to submit for store verification.",
             style: TextStyle(color: textSecondary, fontSize: 13, height: 1.4),
           ),
+          const SizedBox(height: 16),
+          _buildVerificationChoice(
+            value: 'business_permit_dti',
+            title: 'Business Permit / DTI',
+            subtitle: 'Recommended for registered stores and businesses.',
+            icon: Icons.assignment_turned_in_rounded,
+          ),
+          const SizedBox(height: 10),
+          _buildVerificationChoice(
+            value: 'valid_id',
+            title: 'Valid ID',
+            subtitle: 'Use this if you do not have a permit yet.',
+            icon: Icons.badge_rounded,
+          ),
           const SizedBox(height: 20),
+          Text(
+            documentLabel,
+            style: TextStyle(
+              color: primaryDark,
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _verificationDocumentDescription(),
+            style: TextStyle(color: textSecondary, fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 12),
           GestureDetector(
-            onTap: () => _pickImage('permit'),
+            onTap: _isReadOnly ? null : () => _pickImage('permit'),
             child: Container(
               height: 200,
               width: double.infinity,
@@ -1658,19 +2676,42 @@ class _SellerProfileState extends State<SellerProfile> {
                 color: _isReadOnly ? bgColor.withValues(alpha: 0.5) : bgColor,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: cardBorder, width: 2),
-                image: permitProvider != null ? DecorationImage(image: permitProvider, fit: BoxFit.contain) : null,
+                image: permitProvider != null
+                    ? DecorationImage(
+                        image: permitProvider,
+                        fit: BoxFit.contain,
+                      )
+                    : null,
               ),
               child: permitProvider == null
                   ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.document_scanner_rounded, color: textSecondary.withValues(alpha: 0.5), size: 40),
-                  const SizedBox(height: 12),
-                  Text("Tap to Upload Document", style: TextStyle(color: textSecondary, fontWeight: FontWeight.w700, fontSize: 14)),
-                  const SizedBox(height: 4),
-                  Text("JPG, PNG (Max 5MB)", style: TextStyle(color: textSecondary.withValues(alpha: 0.7), fontSize: 11)),
-                ],
-              )
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _verificationDocumentIcon(),
+                          color: textSecondary.withValues(alpha: 0.5),
+                          size: 40,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          "Tap to Upload $documentLabel",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "JPG, PNG (Max 5MB)",
+                          style: TextStyle(
+                            color: textSecondary.withValues(alpha: 0.7),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    )
                   : null,
             ),
           ),
@@ -1679,23 +2720,56 @@ class _SellerProfileState extends State<SellerProfile> {
     );
   }
 
-  Widget _buildTextField({required TextEditingController controller, required String label, required IconData icon, int maxLines = 1}) {
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    String? hintText,
+    TextInputType? keyboardType,
+    List<TextInputFormatter>? inputFormatters,
+    int maxLines = 1,
+  }) {
     return TextField(
       controller: controller,
       maxLines: maxLines,
+      keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
       enabled: !_isReadOnly, // Disables text input if in review
-      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: primaryDark),
+      style: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        color: primaryDark,
+      ),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: TextStyle(color: textSecondary, fontSize: 14, fontWeight: FontWeight.w500),
-        prefixIcon: maxLines == 1 ? Icon(icon, color: textSecondary, size: 20) : null,
+        hintText: hintText,
+        labelStyle: TextStyle(
+          color: textSecondary,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+        prefixIcon: maxLines == 1
+            ? Icon(icon, color: textSecondary, size: 20)
+            : null,
         filled: true,
         fillColor: _isReadOnly ? cardBorder.withValues(alpha: 0.3) : bgColor,
         alignLabelWithHint: true,
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-        disabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder.withValues(alpha: 0.5))),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: cardBorder)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: primaryBlue, width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(
+          vertical: 16,
+          horizontal: 16,
+        ),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: cardBorder.withValues(alpha: 0.5)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: cardBorder),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: primaryBlue, width: 1.5),
+        ),
       ),
     );
   }
@@ -1712,16 +2786,30 @@ class _SellerProfileState extends State<SellerProfile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Icon(Icons.dangerous_rounded, color: danger, size: 18),
-            const SizedBox(width: 8),
-            Text("DANGER ZONE",
-                style: TextStyle(color: danger, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
-          ]),
+          Row(
+            children: [
+              Icon(Icons.dangerous_rounded, color: danger, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                "DANGER ZONE",
+                style: TextStyle(
+                  color: danger,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.2,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 6),
           Text(
             "Permanently delete your shop, its products, delivery rates, payment QR codes, and order history. This cannot be undone.",
-            style: TextStyle(color: textSecondary, fontSize: 12.5, height: 1.45, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: textSecondary,
+              fontSize: 12.5,
+              height: 1.45,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -1729,11 +2817,19 @@ class _SellerProfileState extends State<SellerProfile> {
             child: OutlinedButton.icon(
               onPressed: _isSaving ? null : _openDeleteShopSheet,
               icon: Icon(Icons.delete_forever_rounded, color: danger),
-              label: Text("Delete Shop", style: TextStyle(color: danger, fontWeight: FontWeight.w900)),
+              label: Text(
+                "Delete Shop",
+                style: TextStyle(color: danger, fontWeight: FontWeight.w900),
+              ),
               style: OutlinedButton.styleFrom(
-                side: BorderSide(color: danger.withValues(alpha: 0.6), width: 1.2),
+                side: BorderSide(
+                  color: danger.withValues(alpha: 0.6),
+                  width: 1.2,
+                ),
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),
@@ -1758,19 +2854,34 @@ class _SellerProfileState extends State<SellerProfile> {
     _loadingDialog.updateTitle("Deleting shop...");
     try {
       // Best-effort cascade: remove dependent rows first.
-      try { await _supabase.from('store_items').delete().eq('item_seller_id', id); } catch (_) {}
-      try { await _supabase.from('delivery_rates').delete().eq('rate_seller_id', id); } catch (_) {}
+      try {
+        await _supabase.from('store_items').delete().eq('item_seller_id', id);
+      } catch (_) {}
+      try {
+        await _supabase
+            .from('delivery_rates')
+            .delete()
+            .eq('rate_seller_id', id);
+      } catch (_) {}
       await _supabase.from('sellers').delete().eq('seller_id', id);
 
       _loadingDialog.dismiss();
       if (mounted) {
-        SnackbarMessenger().showSnackbar(context, SnackbarMessenger.success, "Shop deleted.");
+        SnackbarMessenger().showSnackbar(
+          context,
+          SnackbarMessenger.success,
+          "Shop deleted.",
+        );
         Navigator.pop(context);
       }
     } catch (e) {
       _loadingDialog.dismiss();
       if (mounted) {
-        SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Delete failed: $e");
+        SnackbarMessenger().showSnackbar(
+          context,
+          SnackbarMessenger.failed,
+          "Delete failed: $e",
+        );
       }
       rethrow;
     }
@@ -1786,11 +2897,19 @@ class _SellerProfileState extends State<SellerProfile> {
           style: OutlinedButton.styleFrom(
             disabledForegroundColor: textSecondary,
             side: BorderSide(color: cardBorder),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
           ),
           child: Text(
-            _storeStatus == 'in_review' ? "STORE IS UNDER REVIEW" : "STORE IS SUSPENDED",
-            style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.0, fontSize: 14),
+            _storeStatus == 'in_review'
+                ? "STORE IS UNDER REVIEW"
+                : "STORE IS SUSPENDED",
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.0,
+              fontSize: 14,
+            ),
           ),
         ),
       );
@@ -1805,11 +2924,17 @@ class _SellerProfileState extends State<SellerProfile> {
           backgroundColor: primaryBlue,
           foregroundColor: Colors.white,
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
         ),
         child: Text(
           _storeStatus == 'visible' ? "SAVE CHANGES" : "SUBMIT STORE DETAILS",
-          style: const TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.0, fontSize: 15),
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.0,
+            fontSize: 15,
+          ),
         ),
       ),
     );
@@ -1826,13 +2951,13 @@ class _SellerProfileState extends State<SellerProfile> {
         tagline: "AGA MARKETPLACE",
         title: "Sell Online for FREE",
         body:
-            "Set up a digital storefront for your Marinduque business at zero cost. No subscriptions, no listing fees — ever.",
+            "Set up a digital storefront for your Marinduque business at zero cost. No subscriptions, no listing fees â€” ever.",
         accent: Color(0xFF10B981),
       ),
       const _IntroSlide(
         icon: Icons.volunteer_activism_rounded,
         tagline: "SUPPORTING LOCAL",
-        title: "Built for Marinduqueños",
+        title: "Built for MarinduqueÃ±os",
         body:
             "AGA was created to help local entrepreneurs reach buyers across the island. Every order helps a Marinduque family.",
         accent: Color(0xFF2563EB),
@@ -1850,7 +2975,7 @@ class _SellerProfileState extends State<SellerProfile> {
         tagline: "GET STARTED",
         title: "Ready to open your shop?",
         body:
-            "Fill in your store details and upload your Mayor's Permit. Our team verifies new shops within 1–3 business days.",
+            "Fill in your store details and upload a Business Permit, DTI registration, or Valid ID. Our team verifies new shops within 1-3 business days.",
         accent: Color(0xFF8B5CF6),
       ),
     ];
@@ -1870,24 +2995,46 @@ class _SellerProfileState extends State<SellerProfile> {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: accent.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.celebration_rounded, color: accent, size: 14),
-                        const SizedBox(width: 4),
-                        Text("FREE FOREVER",
-                            style: TextStyle(color: accent, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 1.2)),
-                      ]),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.celebration_rounded,
+                            color: accent,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "FREE FOREVER",
+                            style: TextStyle(
+                              color: accent,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 10,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const Spacer(),
                     if (!isLast)
                       TextButton(
                         onPressed: _dismissIntro,
-                        child: Text("Skip",
-                            style: TextStyle(color: textSecondary, fontWeight: FontWeight.w800)),
+                        child: Text(
+                          "Skip",
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -1933,10 +3080,15 @@ class _SellerProfileState extends State<SellerProfile> {
                             foregroundColor: textSecondary,
                             side: BorderSide(color: cardBorder),
                             padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
                           ),
                           icon: const Icon(Icons.arrow_back_rounded, size: 16),
-                          label: const Text("Back", style: TextStyle(fontWeight: FontWeight.w800)),
+                          label: const Text(
+                            "Back",
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
                         ),
                       ),
                     if (_introPage > 0) const SizedBox(width: 10),
@@ -1946,20 +3098,30 @@ class _SellerProfileState extends State<SellerProfile> {
                         onPressed: isLast
                             ? _dismissIntro
                             : () => _introPageCtrl.nextPage(
-                                  duration: const Duration(milliseconds: 280),
-                                  curve: Curves.easeOutCubic,
-                                ),
+                                duration: const Duration(milliseconds: 280),
+                                curve: Curves.easeOutCubic,
+                              ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: accent,
                           foregroundColor: Colors.white,
                           elevation: 0,
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
-                        icon: Icon(isLast ? Icons.check_circle_rounded : Icons.arrow_forward_rounded, size: 18),
+                        icon: Icon(
+                          isLast
+                              ? Icons.check_circle_rounded
+                              : Icons.arrow_forward_rounded,
+                          size: 18,
+                        ),
                         label: Text(
                           isLast ? "Start Selling" : "Next",
-                          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),
@@ -1982,7 +3144,10 @@ class _SellerProfileState extends State<SellerProfile> {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: slide.accent.withValues(alpha: 0.12),
-            border: Border.all(color: slide.accent.withValues(alpha: 0.3), width: 2),
+            border: Border.all(
+              color: slide.accent.withValues(alpha: 0.3),
+              width: 2,
+            ),
           ),
           child: Icon(slide.icon, color: slide.accent, size: 56),
         ),
@@ -1993,8 +3158,15 @@ class _SellerProfileState extends State<SellerProfile> {
             color: slide.accent.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(20),
           ),
-          child: Text(slide.tagline,
-              style: TextStyle(color: slide.accent, fontWeight: FontWeight.w900, fontSize: 10.5, letterSpacing: 1.4)),
+          child: Text(
+            slide.tagline,
+            style: TextStyle(
+              color: slide.accent,
+              fontWeight: FontWeight.w900,
+              fontSize: 10.5,
+              letterSpacing: 1.4,
+            ),
+          ),
         ),
         const SizedBox(height: 14),
         Padding(

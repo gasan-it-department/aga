@@ -1,25 +1,25 @@
 import 'dart:async';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:gasan_port_tracker/Database/SupabaseUtility.dart';
+import 'package:gasan_port_tracker/Services/BackgroundService.dart';
+import 'package:gasan_port_tracker/Services/WebPushNotificationService.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../Dialogs/ClassicDialog.dart';
-
 class SupabaseAuthentication {
   final supabase = Supabase.instance.client;
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
-  final _classicDialog = ClassicDialog();
 
   bool isUserAuthenticated() {
     final session = supabase.auth.currentSession;
     return session != null;
   }
 
-  void signInWithGoogle(void Function(String? errorMessage, StackTrace? stacktrrace) onError, void Function(AuthResponse authResponse) onSuccess) async {
+  void signInWithGoogle(
+    void Function(String? errorMessage, StackTrace? stacktrrace) onError,
+    void Function(AuthResponse authResponse) onSuccess,
+  ) async {
     try {
       await Future.delayed(Duration(milliseconds: 500));
       if (kIsWeb) {
@@ -27,15 +27,13 @@ class SupabaseAuthentication {
 
         final String redirectUrl = kDebugMode
             ? 'http://localhost:3000'
-              :'https://aga-app.gasan.workers.dev/';
+            : 'https://aga-app.gasan.workers.dev/';
 
         await supabase.auth.signInWithOAuth(
           OAuthProvider.google,
-          queryParams: {
-            'prompt': 'select_account',
-          },
+          queryParams: {'prompt': 'select_account'},
           redirectTo: redirectUrl,
-          authScreenLaunchMode: LaunchMode.inAppWebView
+          authScreenLaunchMode: LaunchMode.inAppWebView,
         );
 
         await Completer<void>().future;
@@ -55,10 +53,8 @@ class SupabaseAuthentication {
           throw 'Missing Google ID Token.';
         }
 
-        final authorization = await googleUser.authorizationClient.authorizeScopes([
-          'email',
-          'profile',
-        ]);
+        final authorization = await googleUser.authorizationClient
+            .authorizeScopes(['email', 'profile']);
 
         final accessToken = authorization.accessToken;
 
@@ -68,10 +64,11 @@ class SupabaseAuthentication {
           accessToken: accessToken,
         );
 
-        Utility().printLog('Supabase Sign-In Successful for: ${response.user?.email}');
+        Utility().printLog(
+          'Supabase Sign-In Successful for: ${response.user?.email}',
+        );
         onSuccess(response);
       }
-
     } catch (error, stacktrace) {
       Utility().printLog('General Error: $error');
       Utility().printLog('Stacktrace: $stacktrace');
@@ -81,10 +78,7 @@ class SupabaseAuthentication {
 
   Future<AuthResponse?> signUpWithEmail(String email, String password) async {
     try {
-      return await supabase.auth.signUp(
-        email: email,
-        password: password,
-      );
+      return await supabase.auth.signUp(email: email, password: password);
     } catch (e) {
       Utility().printLog('Email Sign-Up Error: $e');
       return null;
@@ -105,6 +99,8 @@ class SupabaseAuthentication {
 
   Future<void> signOut() async {
     try {
+      await NotificationBackgroundService().clearAuthenticatedUser();
+      await WebPushNotificationService.instance.unregisterCurrentUser();
       if (!kIsWeb) {
         await _googleSignIn.signOut();
       }

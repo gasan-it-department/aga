@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 
-// IMPORTANT: Adjust this path to wherever you saved ViewVesselsDetails.dart
+import '../../Dialogs/Bottomsheets/ViewFares.dart';
+import '../../Dialogs/Bottomsheets/ViewSchedules.dart';
 import 'ViewVesselsDetails.dart';
 
 class ViewShippingLinesDetails extends StatefulWidget {
@@ -50,6 +53,189 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
       debugPrint("Error fetching shipping lines: $e");
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  List<dynamic> _parseData(dynamic data) {
+    if (data == null) return [];
+    if (data is List) return data;
+    if (data is String) {
+      try {
+        final decoded = jsonDecode(data);
+        return decoded is List ? decoded : [decoded];
+      } catch (_) {
+        return [];
+      }
+    }
+    return [data];
+  }
+
+  void _showShippingLineOptions(Map<String, dynamic> line) {
+    final String lineName = line['shipping_line_name']?.toString() ?? 'Shipping Line';
+    final int fleetSize = (line['vessels'] as List?)?.length ?? 0;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: outlineColor,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: primaryDark.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(Icons.directions_boat_filled_rounded, color: primaryDark, size: 24),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            lineName,
+                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: primaryDark),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            "$fleetSize Vessel${fleetSize <= 1 ? '' : 's'} available",
+                            style: TextStyle(fontSize: 12, color: textSecondary, fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _buildOptionTile(
+                  icon: Icons.payments_rounded,
+                  title: 'View Rates',
+                  subtitle: 'Passenger and cargo fare information',
+                  color: const Color(0xFF059669),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ViewFares.showBottomSheet(
+                      context: context,
+                      shippingLineName: lineName,
+                      fares: _parseData(line['shipping_line_fares']),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                _buildOptionTile(
+                  icon: Icons.event_available_rounded,
+                  title: 'View Schedules',
+                  subtitle: 'Routes, departure times and trip status',
+                  color: const Color(0xFF2563EB),
+                  onTap: () {
+                    Navigator.pop(context);
+                    ViewSchedules.showBottomSheet(
+                      context: context,
+                      shippingLineName: lineName,
+                      schedules: _parseData(line['shipping_line_schedules']),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                _buildOptionTile(
+                  icon: Icons.directions_boat_rounded,
+                  title: 'View Vessels',
+                  subtitle: 'Open vessel list and live vessel details',
+                  color: const Color(0xFF7C3AED),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ViewVesselsDetails(shippingLine: line),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOptionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: color.withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 3),
+                    Text(subtitle, style: TextStyle(color: textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: color),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -109,15 +295,7 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: () {
-            // --- NEW: Navigate to the Vessels Details Screen ---
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ViewVesselsDetails(shippingLine: line),
-              ),
-            );
-          },
+          onTap: () => _showShippingLineOptions(line),
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
@@ -153,8 +331,7 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                     ],
                   ),
                 ),
-                // --- NEW: Added a forward arrow to show it's clickable ---
-                Icon(Icons.arrow_forward_ios_rounded, size: 16, color: outlineColor),
+                Icon(Icons.more_horiz_rounded, size: 22, color: textSecondary),
               ],
             ),
           ),

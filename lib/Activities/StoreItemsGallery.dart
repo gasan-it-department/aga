@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,9 +8,9 @@ import 'package:gasan_port_tracker/Utility/ItemPreferenceTracker.dart';
 import 'Seller/StoreItemDetails.dart';
 import 'ViewShop.dart';
 import 'MyCart.dart';
-import 'UserOrders.dart';
 import 'package:gasan_port_tracker/Utility/ChatService.dart';
 import 'package:gasan_port_tracker/Activities/Chat/ChatInbox.dart';
+import 'package:gasan_port_tracker/Activities/Seller/SellerProfile.dart';
 
 class StoreItemsGallery extends StatefulWidget {
   final bool isTab;
@@ -43,6 +44,9 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
   int _visibleCount = _pageSize;
   String _activeCategory = 'All';
   int _municipalZipCode = 0;
+  int _promoIndex = 0;
+  final PageController _promoController = PageController();
+  Timer? _promoTimer;
 
   static final List<Map<String, dynamic>> _categories = [
     {'label': 'All', 'icon': Icons.apps_rounded},
@@ -55,6 +59,15 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
   void initState() {
     super.initState();
     _init();
+    _promoTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || !_promoController.hasClients) return;
+      final next = (_promoIndex + 1) % 2;
+      _promoController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+    });
     _searchFocus.addListener(() => setState(() {}));
     _scrollCtrl.addListener(_onScroll);
     final uid = _supabase.auth.currentUser?.id;
@@ -85,7 +98,10 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
     try {
       final data = await _supabase
           .from('sellers')
-          .select('seller_id, seller_store_name, seller_logo, seller_store_address')
+          .select(
+            'seller_id, seller_store_name, seller_logo, seller_store_address, seller_store_status',
+          )
+          .eq('seller_store_status', 'visible')
           .limit(40);
       final shops = List<Map<String, dynamic>>.from(data)..shuffle();
       if (mounted) setState(() => _shops = shops.take(10).toList());
@@ -100,6 +116,8 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
     _searchCtrl.dispose();
     _scrollCtrl.dispose();
     _searchFocus.dispose();
+    _promoController.dispose();
+    _promoTimer?.cancel();
     super.dispose();
   }
 
@@ -109,7 +127,7 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
       for (final v in vars) {
         if (v is Map) {
           final s = num.tryParse(v['stock']?.toString() ?? '0') ?? 0;
-          if (s > 0) return false;
+          if (s < 0 || s > 0) return false;
         }
       }
       return true;
@@ -117,17 +135,70 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
     final raw = item['item_stocks'];
     if (raw == null) return false;
     final s = raw is int ? raw : int.tryParse(raw.toString());
-    return s != null && s <= 0;
+    return s != null && s == 0;
+  }
+
+  List<Map<String, dynamic>> _sellableVariations(Map<String, dynamic> item) {
+    final vars = item['item_variations'];
+    if (vars is! List) return const [];
+    return vars.whereType<Map>().map((v) => Map<String, dynamic>.from(v)).where(
+      (variation) {
+        final stock = num.tryParse(variation['stock']?.toString() ?? '0') ?? 0;
+        final price = num.tryParse(variation['price']?.toString() ?? '');
+        return (stock < 0 || stock > 0) && price != null;
+      },
+    ).toList();
+  }
+
+  num _displayPrice(Map<String, dynamic> item) {
+    final variations = _sellableVariations(item);
+    if (variations.isNotEmpty) {
+      variations.sort((a, b) {
+        final aPrice = num.tryParse(a['price']?.toString() ?? '0') ?? 0;
+        final bPrice = num.tryParse(b['price']?.toString() ?? '0') ?? 0;
+        return aPrice.compareTo(bPrice);
+      });
+      return num.tryParse(variations.first['price']?.toString() ?? '0') ?? 0;
+    }
+
+    final rawPrice = item['item_price'];
+    return rawPrice is num
+        ? rawPrice
+        : (num.tryParse(rawPrice?.toString() ?? '0') ?? 0);
+  }
+
+  num _effectiveStock(Map<String, dynamic> item) {
+    final variations = _sellableVariations(item);
+    if (variations.isNotEmpty) {
+      if (variations.any((v) {
+        final stock = num.tryParse(v['stock']?.toString() ?? '0') ?? 0;
+        return stock < 0;
+      })) {
+        return -1;
+      }
+      return variations.fold<num>(0, (sum, variation) {
+        final stock = num.tryParse(variation['stock']?.toString() ?? '0') ?? 0;
+        return sum + stock;
+      });
+    }
+
+    final raw = item['item_stocks'];
+    return raw is num ? raw : (num.tryParse(raw?.toString() ?? '0') ?? 0);
   }
 
   Future<void> _fetchItems() async {
     setState(() => _isLoading = true);
     try {
-      debugPrint("Gallery filter zip=$_municipalZipCode category=$_activeCategory query=$_query");
+      debugPrint(
+        "Gallery filter zip=$_municipalZipCode category=$_activeCategory query=$_query",
+      );
       var query = _supabase
           .from('store_items')
-          .select('*, sellers(seller_store_name, seller_logo, seller_store_address)')
-          .eq('item_available', true);
+          .select(
+            '*, sellers!inner(seller_store_name, seller_logo, seller_store_address, seller_store_status)',
+          )
+          .eq('item_available', true)
+          .eq('sellers.seller_store_status', 'visible');
       if (_activeCategory != 'All') {
         query = query.ilike('item_category', _activeCategory);
       }
@@ -136,17 +207,22 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
       items = items.where((item) => !_isItemOutOfStock(item)).toList();
       if (_municipalZipCode != 0) {
         items = items.where((item) {
-          final origin = num.tryParse('${item['item_municipality_origin'] ?? ''}');
+          final origin = num.tryParse(
+            '${item['item_municipality_origin'] ?? ''}',
+          );
           if (origin != null && origin == _municipalZipCode) return true;
           final addr = item['sellers']?['seller_store_address'];
           if (addr is Map) {
             final sellerZip = num.tryParse('${addr['zip_code'] ?? ''}');
-            if (sellerZip != null && sellerZip == _municipalZipCode) return true;
+            if (sellerZip != null && sellerZip == _municipalZipCode)
+              return true;
           }
           return false;
         }).toList();
       }
-      debugPrint("Gallery fetched ${items.length} items for zip=$_municipalZipCode");
+      debugPrint(
+        "Gallery fetched ${items.length} items for zip=$_municipalZipCode",
+      );
       final weights = await ItemPreferenceTracker.typeWeights();
       items = ItemPreferenceTracker.personalize(items, weights);
       if (mounted) {
@@ -168,9 +244,15 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
 
   void _onScroll() {
     if (!_scrollCtrl.hasClients) return;
-    if (_scrollCtrl.position.pixels >= _scrollCtrl.position.maxScrollExtent - 400) {
+    if (_scrollCtrl.position.pixels >=
+        _scrollCtrl.position.maxScrollExtent - 400) {
       if (_visibleCount < _filtered.length) {
-        setState(() => _visibleCount = (_visibleCount + _pageSize).clamp(0, _filtered.length));
+        setState(
+          () => _visibleCount = (_visibleCount + _pageSize).clamp(
+            0,
+            _filtered.length,
+          ),
+        );
       }
     }
   }
@@ -179,7 +261,10 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
     try {
       final uid = _supabase.auth.currentUser?.id;
       if (uid == null) return;
-      final data = await _supabase.from('cart').select('cart_id').eq('cart_user_id', uid);
+      final data = await _supabase
+          .from('cart')
+          .select('cart_id')
+          .eq('cart_user_id', uid);
       if (mounted) setState(() => _cartCount = (data as List).length);
     } catch (e) {
       debugPrint("Cart count error: $e");
@@ -192,7 +277,9 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
     return _items.where((item) {
       final name = (item['item_name'] ?? '').toString().toLowerCase();
       final cat = (item['item_category'] ?? '').toString().toLowerCase();
-      final shop = (item['sellers']?['seller_store_name'] ?? '').toString().toLowerCase();
+      final shop = (item['sellers']?['seller_store_name'] ?? '')
+          .toString()
+          .toLowerCase();
       return name.contains(q) || cat.contains(q) || shop.contains(q);
     }).toList();
   }
@@ -206,52 +293,64 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: bgColor,
-      body: LayoutBuilder(builder: (context, constraints) {
-        final double w = constraints.maxWidth;
-        final int crossAxis = w >= 1600
-            ? 6
-            : w >= 1200
-                ? 5
-                : w >= 900
-                    ? 4
-                    : w >= 600
-                        ? 3
-                        : 2;
-        final bool isDesktop = w >= 1100;
-        final bool isTablet = w >= 700 && w < 1100;
-        final double maxContent = isDesktop ? 1400 : (isTablet ? 1000 : double.infinity);
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final double w = constraints.maxWidth;
+          final int crossAxis = w >= 1600
+              ? 6
+              : w >= 1200
+              ? 5
+              : w >= 900
+              ? 4
+              : w >= 600
+              ? 3
+              : 2;
+          final bool isDesktop = w >= 1100;
+          final bool isTablet = w >= 700 && w < 1100;
+          final double maxContent = isDesktop
+              ? 1400
+              : (isTablet ? 1000 : double.infinity);
 
-        return Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxContent),
-            child: RefreshIndicator(
-              onRefresh: () async {
-                await _fetchItems();
-                await _fetchCartCount();
-              },
-              color: themeOrange,
-              child: CustomScrollView(
-                controller: _scrollCtrl,
-                physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                slivers: [
-                  _buildHeader(isDesktop, isTablet),
-                  SliverToBoxAdapter(child: _buildPromoBanner(isDesktop || isTablet)),
-                  SliverToBoxAdapter(child: _buildCategoryStrip()),
-                  SliverToBoxAdapter(child: _buildShopsStrip()),
-                  SliverToBoxAdapter(child: _buildSectionHeader()),
-                  _isLoading
-                      ? const SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: Center(child: CircularProgressIndicator()))
-                      : _filtered.isEmpty
-                          ? SliverFillRemaining(hasScrollBody: false, child: _buildEmptyState())
-                          : _buildGrid(crossAxis),
-                ],
+          return Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxContent),
+              child: RefreshIndicator(
+                onRefresh: () async {
+                  await _fetchItems();
+                  await _fetchCartCount();
+                },
+                color: themeOrange,
+                child: CustomScrollView(
+                  controller: _scrollCtrl,
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics(),
+                  ),
+                  slivers: [
+                    _buildHeader(isDesktop, isTablet),
+                    SliverToBoxAdapter(
+                      child: _buildPromoBanner(isDesktop || isTablet),
+                    ),
+                    SliverToBoxAdapter(child: _buildCategoryStrip()),
+                    SliverToBoxAdapter(child: _buildShopsStrip()),
+                    SliverToBoxAdapter(child: _buildSectionHeader()),
+                    _isLoading
+                        ? const SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        : _filtered.isEmpty
+                        ? SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: _buildEmptyState(),
+                          )
+                        : _buildGrid(crossAxis),
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      }),
+          );
+        },
+      ),
     );
   }
 
@@ -276,7 +375,9 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
         ),
       ),
       title: Padding(
-        padding: EdgeInsets.symmetric(horizontal: isDesktop ? 24 : (isTablet ? 16 : 8)),
+        padding: EdgeInsets.symmetric(
+          horizontal: isDesktop ? 24 : (isTablet ? 16 : 8),
+        ),
         child: Row(
           children: [
             if (!widget.isTab) ...[
@@ -285,7 +386,11 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                 onTap: () => Navigator.maybePop(context),
                 child: const Padding(
                   padding: EdgeInsets.all(8),
-                  child: Icon(Icons.arrow_back_rounded, color: Colors.white, size: 22),
+                  child: Icon(
+                    Icons.arrow_back_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
                 ),
               ),
               const SizedBox(width: 4),
@@ -301,14 +406,24 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                     backgroundColor: Colors.white,
                     foregroundColor: themeOrange,
                     elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     minimumSize: const Size(0, 36),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
-                  child: const Text("Search", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5)),
+                  child: const Text(
+                    "Search",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 12.5,
+                    ),
+                  ),
                 ),
               ),
-            _buildOrdersIcon(),
             _buildMessagesIcon(),
             _buildCartIcon(),
           ],
@@ -330,18 +445,29 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
         onSubmitted: (_) => _runSearch(),
         textInputAction: TextInputAction.search,
         textAlignVertical: TextAlignVertical.center,
-        style: TextStyle(color: primaryDark, fontSize: 13.5, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          color: primaryDark,
+          fontSize: 13.5,
+          fontWeight: FontWeight.w600,
+        ),
         decoration: InputDecoration(
           filled: true,
           fillColor: Colors.white,
           isDense: true,
           hintText: "Search items, stores...",
-          hintStyle: TextStyle(color: textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
+          hintStyle: TextStyle(
+            color: textSecondary,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
           prefixIcon: Padding(
             padding: const EdgeInsets.only(left: 10, right: 6),
             child: Icon(Icons.search_rounded, color: themeOrange, size: 20),
           ),
-          prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 0,
+            minHeight: 0,
+          ),
           suffixIcon: _query.isEmpty
               ? null
               : InkWell(
@@ -356,26 +482,34 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                   },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Icon(Icons.close_rounded, size: 18, color: textSecondary),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: textSecondary,
+                    ),
                   ),
                 ),
-          suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+          suffixIconConstraints: const BoxConstraints(
+            minWidth: 0,
+            minHeight: 0,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 10,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide.none,
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: BorderSide.none,
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildOrdersIcon() {
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserOrders())),
-      child: const Padding(
-        padding: EdgeInsets.all(8),
-        child: Icon(Icons.receipt_long_outlined, color: Colors.white, size: 24),
       ),
     );
   }
@@ -384,7 +518,10 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatInbox()));
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ChatInbox()),
+        );
         _fetchMsgCount();
       },
       child: Padding(
@@ -392,14 +529,24 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            const Icon(Icons.chat_bubble_outline_rounded, color: Colors.white, size: 24),
+            const Icon(
+              Icons.chat_bubble_outline_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
             if (_msgCount > 0)
               Positioned(
                 right: -6,
                 top: -4,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
@@ -408,7 +555,11 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                   child: Text(
                     _msgCount > 99 ? '99+' : '$_msgCount',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: themeOrange, fontSize: 9.5, fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      color: themeOrange,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ),
@@ -422,7 +573,10 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
     return InkWell(
       borderRadius: BorderRadius.circular(20),
       onTap: () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const MyCart()));
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const MyCart()),
+        );
         _fetchCartCount();
       },
       child: Padding(
@@ -430,14 +584,24 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            const Icon(Icons.shopping_cart_outlined, color: Colors.white, size: 24),
+            const Icon(
+              Icons.shopping_cart_outlined,
+              color: Colors.white,
+              size: 24,
+            ),
             if (_cartCount > 0)
               Positioned(
                 right: -6,
                 top: -4,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
@@ -446,7 +610,11 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                   child: Text(
                     _cartCount > 99 ? '99+' : '$_cartCount',
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: themeOrange, fontSize: 9.5, fontWeight: FontWeight.w900),
+                    style: TextStyle(
+                      color: themeOrange,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ),
@@ -459,48 +627,166 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
   Widget _buildPromoBanner(bool isWide) {
     return Padding(
       padding: EdgeInsets.fromLTRB(isWide ? 24 : 14, 12, isWide ? 24 : 14, 4),
-      child: Container(
-        height: 110,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [const Color(0xFFFFE0B2), const Color(0xFFFFCCBC)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [BoxShadow(color: themeOrange.withValues(alpha: 0.18), blurRadius: 14, offset: const Offset(0, 6))],
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              right: -10, bottom: -10,
-              child: Icon(Icons.local_offer_rounded, size: 110, color: themeOrange.withValues(alpha: 0.15)),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: themeOrange,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Text("MARKETPLACE",
-                      style: TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w900, letterSpacing: 1.4)),
+      child: Column(
+        children: [
+          SizedBox(
+            height: 124,
+            child: PageView(
+              controller: _promoController,
+              onPageChanged: (index) => setState(() => _promoIndex = index),
+              children: [
+                _promoCard(
+                  colors: const [Color(0xFFFFE0B2), Color(0xFFFFCCBC)],
+                  accent: themeOrange,
+                  icon: Icons.local_offer_rounded,
+                  badge: "MARKETPLACE",
+                  title: "Shop Local. Support Marinduque.",
+                  subtitle: "Hand-picked items from trusted local sellers.",
+                ),
+                _promoCard(
+                  colors: const [Color(0xFFDCFCE7), Color(0xFFCCFBF1)],
+                  accent: const Color(0xFF059669),
+                  icon: Icons.storefront_rounded,
+                  badge: "SELL FOR FREE",
+                  title: "Turn your products into a local business.",
+                  subtitle: "Create your shop and sell in AGA completely free.",
+                  action: "Start Selling",
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SellerProfile()),
                   ),
-                  const SizedBox(height: 8),
-                  Text("Shop Local. Support Marinduque.",
-                    style: TextStyle(color: primaryDark, fontSize: 17, fontWeight: FontWeight.w900, letterSpacing: -0.4)),
-                  const SizedBox(height: 2),
-                  Text("Hand-picked items from trusted local sellers.",
-                    style: TextStyle(color: primaryDark.withValues(alpha: 0.65), fontSize: 11.5, fontWeight: FontWeight.w600)),
-                ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 7),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              2,
+              (index) => Container(
+                width: _promoIndex == index ? 18 : 6,
+                height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  color: _promoIndex == index ? themeOrange : cardBorder,
+                  borderRadius: BorderRadius.circular(4),
+                ),
               ),
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _promoCard({
+    required List<Color> colors,
+    required Color accent,
+    required IconData icon,
+    required String badge,
+    required String title,
+    required String subtitle,
+    String? action,
+    VoidCallback? onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: colors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: accent.withValues(alpha: 0.16),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  right: -8,
+                  bottom: -14,
+                  child: Icon(
+                    icon,
+                    size: 112,
+                    color: accent.withValues(alpha: 0.14),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accent,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          badge,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: primaryDark,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: primaryDark.withValues(alpha: 0.65),
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (action != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          action,
+                          style: TextStyle(
+                            color: accent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -532,18 +818,32 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                 child: Column(
                   children: [
                     Container(
-                      width: 44, height: 44,
+                      width: 44,
+                      height: 44,
                       decoration: BoxDecoration(
-                        color: active ? themeOrange : themeOrange.withValues(alpha: 0.1),
+                        color: active
+                            ? themeOrange
+                            : themeOrange.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                         boxShadow: active
-                            ? [BoxShadow(color: themeOrange.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 3))]
+                            ? [
+                                BoxShadow(
+                                  color: themeOrange.withValues(alpha: 0.35),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ]
                             : null,
                       ),
-                      child: Icon(c['icon'] as IconData, color: active ? Colors.white : themeOrange, size: 22),
+                      child: Icon(
+                        c['icon'] as IconData,
+                        color: active ? Colors.white : themeOrange,
+                        size: 22,
+                      ),
                     ),
                     const SizedBox(height: 6),
-                    Text(label,
+                    Text(
+                      label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -581,8 +881,14 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-            child: Text("Discover Shops",
-                style: TextStyle(color: primaryDark, fontSize: 15, fontWeight: FontWeight.w900)),
+            child: Text(
+              "Discover Shops",
+              style: TextStyle(
+                color: primaryDark,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
           ),
           SizedBox(
             height: 104,
@@ -599,8 +905,13 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      settings: RouteSettings(name: 'ViewShop:${shop['seller_id']}'),
-                      builder: (_) => ViewShop(sellerId: shop['seller_id'].toString(), sellerData: shop),
+                      settings: RouteSettings(
+                        name: 'ViewShop:${shop['seller_id']}',
+                      ),
+                      builder: (_) => ViewShop(
+                        sellerId: shop['seller_id'].toString(),
+                        sellerData: shop,
+                      ),
                     ),
                   ),
                   child: SizedBox(
@@ -611,24 +922,37 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                           padding: const EdgeInsets.all(2),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            border: Border.all(color: themeOrange.withValues(alpha: 0.4), width: 2),
+                            border: Border.all(
+                              color: themeOrange.withValues(alpha: 0.4),
+                              width: 2,
+                            ),
                           ),
                           child: CircleAvatar(
                             radius: 30,
                             backgroundColor: themeOrange.withValues(alpha: 0.1),
                             backgroundImage: logo,
                             child: logo == null
-                                ? Icon(Icons.storefront_rounded, color: themeOrange, size: 26)
+                                ? Icon(
+                                    Icons.storefront_rounded,
+                                    color: themeOrange,
+                                    size: 26,
+                                  )
                                 : null,
                           ),
                         ),
                         const SizedBox(height: 6),
-                        Text(name,
-                            maxLines: 2,
-                            textAlign: TextAlign.center,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                color: primaryDark, fontSize: 10, fontWeight: FontWeight.w700, height: 1.15)),
+                        Text(
+                          name,
+                          maxLines: 2,
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: primaryDark,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            height: 1.15,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -646,16 +970,38 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
       child: Row(
         children: [
-          Container(width: 4, height: 18, decoration: BoxDecoration(color: themeOrange, borderRadius: BorderRadius.circular(2))),
+          Container(
+            width: 4,
+            height: 18,
+            decoration: BoxDecoration(
+              color: themeOrange,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
           const SizedBox(width: 8),
-          Text("Trending Now",
-            style: TextStyle(color: primaryDark, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: -0.3),
+          Text(
+            "Trending Now",
+            style: TextStyle(
+              color: primaryDark,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.3,
+            ),
           ),
           const Spacer(),
-          Icon(Icons.local_fire_department_rounded, color: themeOrange, size: 18),
+          Icon(
+            Icons.local_fire_department_rounded,
+            color: themeOrange,
+            size: 18,
+          ),
           const SizedBox(width: 4),
-          Text("${_filtered.length} items",
-            style: TextStyle(color: textSecondary, fontSize: 11.5, fontWeight: FontWeight.w700),
+          Text(
+            "${_filtered.length} items",
+            style: TextStyle(
+              color: textSecondary,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -667,10 +1013,12 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
     final bool hasMore = _visibleCount < _filtered.length;
     final columns = List.generate(crossAxis, (_) => <Widget>[]);
     for (int i = 0; i < items.length; i++) {
-      columns[i % crossAxis].add(Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: _buildItemCard(items[i]),
-      ));
+      columns[i % crossAxis].add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: _buildItemCard(items[i]),
+        ),
+      );
     }
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
@@ -704,14 +1052,20 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
 
   Widget _buildItemCard(Map<String, dynamic> item) {
     final String name = (item['item_name'] ?? 'Item').toString();
-    final dynamic rawPrice = item['item_price'];
-    final num price = rawPrice is num ? rawPrice : (num.tryParse(rawPrice?.toString() ?? '0') ?? 0);
+    final num price = _displayPrice(item);
     final dynamic rawImgs = item['item_images'];
-    final List imgs = rawImgs is List ? rawImgs : (rawImgs is String && rawImgs.isNotEmpty ? [rawImgs] : []);
+    final List imgs = rawImgs is List
+        ? rawImgs
+        : (rawImgs is String && rawImgs.isNotEmpty ? [rawImgs] : []);
     final String img = imgs.isNotEmpty ? imgs.first.toString() : "";
-    final Map<String, dynamic> sellerMap = item['sellers'] is Map<String, dynamic> ? item['sellers'] as Map<String, dynamic> : <String, dynamic>{};
-    final String merchant = (sellerMap['seller_store_name'] ?? 'Local Merchant').toString();
-    final int stocks = item['item_stocks'] is int ? item['item_stocks'] : (int.tryParse(item['item_stocks']?.toString() ?? '0') ?? 0);
+    final Map<String, dynamic> sellerMap =
+        item['sellers'] is Map<String, dynamic>
+        ? item['sellers'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final String merchant = (sellerMap['seller_store_name'] ?? 'Local Merchant')
+        .toString();
+    final num stocks = _effectiveStock(item);
+    final bool outOfStock = _isItemOutOfStock(item);
     final String category = (item['item_category'] ?? '').toString();
 
     return Material(
@@ -739,40 +1093,76 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                   fit: StackFit.expand,
                   children: [
                     ClipRRect(
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(7),
+                      ),
                       child: img.isNotEmpty
-                          ? Image.network(img, fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(color: bgColor, child: Icon(Icons.broken_image_rounded, color: textSecondary.withValues(alpha: 0.4))),
+                          ? Image.network(
+                              img,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: bgColor,
+                                child: Icon(
+                                  Icons.broken_image_rounded,
+                                  color: textSecondary.withValues(alpha: 0.4),
+                                ),
+                              ),
                             )
-                          : Container(color: bgColor, child: const Icon(Icons.shopping_bag_outlined, size: 40)),
+                          : Container(
+                              color: bgColor,
+                              child: const Icon(
+                                Icons.shopping_bag_outlined,
+                                size: 40,
+                              ),
+                            ),
                     ),
                     if (category.isNotEmpty)
                       Positioned(
-                        top: 6, left: 6,
+                        top: 6,
+                        left: 6,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.92),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: Text(category.toUpperCase(),
-                            style: TextStyle(color: primaryDark, fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 0.6),
+                          child: Text(
+                            category.toUpperCase(),
+                            style: TextStyle(
+                              color: primaryDark,
+                              fontSize: 8,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.6,
+                            ),
                           ),
                         ),
                       ),
-                    if (stocks == 0)
+                    if (outOfStock)
                       Positioned.fill(
                         child: Container(
                           color: Colors.white.withValues(alpha: 0.75),
                           alignment: Alignment.center,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                             decoration: BoxDecoration(
                               color: primaryDark,
                               borderRadius: BorderRadius.circular(20),
                             ),
-                            child: const Text("OUT OF STOCK",
-                              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1)),
+                            child: const Text(
+                              "OUT OF STOCK",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -785,21 +1175,36 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name,
+                    Text(
+                      name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: primaryDark, fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.25),
+                      style: TextStyle(
+                        color: primaryDark,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        height: 1.25,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        Icon(Icons.storefront_rounded, size: 10, color: textSecondary),
+                        Icon(
+                          Icons.storefront_rounded,
+                          size: 10,
+                          color: textSecondary,
+                        ),
                         const SizedBox(width: 2),
                         Expanded(
-                          child: Text(merchant,
+                          child: Text(
+                            merchant,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: textSecondary, fontSize: 10, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: textSecondary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ],
@@ -808,24 +1213,45 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text("₱", style: TextStyle(color: themeOrange, fontSize: 11, fontWeight: FontWeight.w800)),
+                        Text(
+                          "₱",
+                          style: TextStyle(
+                            color: themeOrange,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                         Flexible(
-                          child: Text(Utility().formatPrice(price),
+                          child: Text(
+                            Utility().formatPrice(price),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: themeOrange, fontSize: 16, fontWeight: FontWeight.w900, height: 1),
+                            style: TextStyle(
+                              color: themeOrange,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              height: 1,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 4),
                         if (stocks > 0 && stocks <= 5)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
                             decoration: BoxDecoration(
                               color: accentEmerald.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(4),
                             ),
-                            child: Text("$stocks left",
-                              style: TextStyle(color: accentEmerald, fontSize: 9, fontWeight: FontWeight.w900),
+                            child: Text(
+                              "${stocks.toInt()} left",
+                              style: TextStyle(
+                                color: accentEmerald,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ),
                       ],
@@ -850,20 +1276,41 @@ class _StoreItemsGalleryState extends State<StoreItemsGallery> {
             decoration: BoxDecoration(
               color: Colors.white,
               shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: themeOrange.withValues(alpha: 0.08), blurRadius: 30, spreadRadius: 5)],
+              boxShadow: [
+                BoxShadow(
+                  color: themeOrange.withValues(alpha: 0.08),
+                  blurRadius: 30,
+                  spreadRadius: 5,
+                ),
+              ],
             ),
-            child: Icon(Icons.storefront_outlined, size: 56, color: themeOrange.withValues(alpha: 0.8)),
+            child: Icon(
+              Icons.storefront_outlined,
+              size: 56,
+              color: themeOrange.withValues(alpha: 0.8),
+            ),
           ),
           const SizedBox(height: 20),
           Text(
-            _query.isEmpty && _activeCategory == 'All' ? "No items yet" : "No items match your filter",
-            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: primaryDark, letterSpacing: -0.3),
+            _query.isEmpty && _activeCategory == 'All'
+                ? "No items yet"
+                : "No items match your filter",
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+              color: primaryDark,
+              letterSpacing: -0.3,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
             "Try a different keyword or category.",
             textAlign: TextAlign.center,
-            style: TextStyle(color: textSecondary, fontSize: 13, fontWeight: FontWeight.w500),
+            style: TextStyle(
+              color: textSecondary,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),

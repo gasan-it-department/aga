@@ -1,37 +1,56 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:geolocator/geolocator.dart';
+import 'package:gasan_port_tracker/Services/WeatherForecastWidgetService.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
+import 'package:gasan_port_tracker/WeatherForecasting/WeatherForecastScreen.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 
 class AgaAppWeatherForecast {
   final String _apiKey = "e72fc3b10cdd458502df474d0bb3c8eb";
 
-  Future<Map<String, dynamic>?> getCurrentWeather(double latitude, double longitude) async {
-    final String url = 'https://api.openweathermap.org/data/2.5/weather?lat=$latitude&lon=$longitude&units=metric&appid=$_apiKey';
+  Future<Map<String, dynamic>?> getCurrentWeather(
+    double latitude,
+    double longitude,
+  ) async {
+    final String url =
+        'https://api.openweathermap.org/data/2.5/weather?lat=$latitude&lon=$longitude&units=metric&appid=$_apiKey';
 
     try {
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 60));
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 60));
       Utility().printLog("Response: ${response.body}");
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
 
         final int temp = (data['main']['temp'] as num).round();
+        final int feelsLike = (data['main']['feels_like'] as num).round();
+        final int humidity = (data['main']['humidity'] as num).round();
+        final double windSpeed =
+            (data['wind']?['speed'] as num?)?.toDouble() ?? 0;
         final String condition = data['weather'][0]['main'];
+        final String description = data['weather'][0]['description'];
         final int conditionId = data['weather'][0]['id'];
-
         final String cityName = data['name'] ?? "Unknown Location";
 
         return {
           'temp': temp,
+          'feelsLike': feelsLike,
+          'humidity': humidity,
+          'windSpeed': windSpeed,
           'condition': condition,
+          'description': description,
           'conditionId': conditionId,
           'cityName': cityName,
         };
       } else {
-        Utility().printLog("Weather fetch failed. Status Code: ${response.statusCode}");
+        Utility().printLog(
+          "Weather fetch failed. Status Code: ${response.statusCode}",
+        );
         return null;
       }
     } on TimeoutException {
@@ -42,11 +61,57 @@ class AgaAppWeatherForecast {
       return null;
     }
   }
+
+  Future<List<Map<String, dynamic>>> getForecast(
+    double latitude,
+    double longitude,
+  ) async {
+    final String url =
+        'https://api.openweathermap.org/data/2.5/forecast?lat=$latitude&lon=$longitude&units=metric&appid=$_apiKey';
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 60));
+
+      if (response.statusCode != 200) {
+        Utility().printLog(
+          "Weather forecast fetch failed. Status Code: ${response.statusCode}",
+        );
+        return [];
+      }
+
+      final data = jsonDecode(response.body);
+      final List<dynamic> items = data['list'] ?? [];
+      return items.map<Map<String, dynamic>>((item) {
+        final weather = (item['weather'] as List).first;
+        return {
+          'dateTime': DateTime.fromMillisecondsSinceEpoch(
+            (item['dt'] as num).toInt() * 1000,
+          ),
+          'temp': (item['main']['temp'] as num).toDouble(),
+          'feelsLike': (item['main']['feels_like'] as num).toDouble(),
+          'humidity': (item['main']['humidity'] as num).toDouble(),
+          'windSpeed': (item['wind']?['speed'] as num?)?.toDouble() ?? 0,
+          'condition': weather['main']?.toString() ?? 'Weather',
+          'description': weather['description']?.toString() ?? '',
+          'conditionId': (weather['id'] as num?)?.toInt() ?? 800,
+        };
+      }).toList();
+    } on TimeoutException {
+      Utility().printLog("Weather Forecast API Exception: Request timed out.");
+      return [];
+    } catch (e) {
+      Utility().printLog("Weather Forecast API Exception: $e");
+      return [];
+    }
+  }
 }
 
 class WeatherHeaderWidget extends StatefulWidget {
   final String userName;
   const WeatherHeaderWidget({super.key, required this.userName});
+
   @override
   State<WeatherHeaderWidget> createState() => _WeatherHeaderWidgetState();
 }
@@ -56,6 +121,7 @@ class _WeatherHeaderWidgetState extends State<WeatherHeaderWidget> {
   String _weatherCondition = "Locating...";
   IconData _weatherIcon = Icons.cloud_outlined;
   String _currentLocation = "Locating...";
+  int? _conditionId;
 
   @override
   void initState() {
@@ -91,24 +157,36 @@ class _WeatherHeaderWidgetState extends State<WeatherHeaderWidget> {
       }
 
       Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
       );
 
       if (mounted) setState(() => _weatherCondition = "Fetching...");
 
       final weatherService = AgaAppWeatherForecast();
       final weatherData = await weatherService.getCurrentWeather(
-          position.latitude,
-          position.longitude
+        position.latitude,
+        position.longitude,
       );
 
       if (weatherData != null && mounted) {
         setState(() {
           _currentTemp = "${weatherData['temp']}°C";
           _weatherCondition = weatherData['condition'];
-          _weatherIcon = _getOpenWeatherIcon(weatherData['conditionId']);
+          _conditionId = weatherData['conditionId'];
+          _weatherIcon = _getOpenWeatherIcon(_conditionId!);
           _currentLocation = "Near at ${weatherData['cityName']}";
         });
+        await WeatherForecastWidgetService.update(
+          temp: weatherData['temp'] as int,
+          feelsLike: weatherData['feelsLike'] as int,
+          humidity: weatherData['humidity'] as int,
+          windSpeed: weatherData['windSpeed'] as double,
+          condition: weatherData['condition'].toString(),
+          location: "Near at ${weatherData['cityName']}",
+          forecast: weatherData['description'].toString(),
+        );
       } else if (mounted) {
         setState(() => _weatherCondition = "Unavailable");
       }
@@ -128,63 +206,208 @@ class _WeatherHeaderWidgetState extends State<WeatherHeaderWidget> {
     return Icons.cloud_outlined;
   }
 
+  String _weatherBackgroundAsset() {
+    final code = _conditionId;
+    final hour = DateTime.now().hour;
+    final isNight = hour < 6 || hour >= 18;
+
+    if (code == null) {
+      return isNight
+          ? 'assets/weather_backgrounds/night.png'
+          : 'assets/weather_backgrounds/weather_cloudy.png';
+    }
+    if (code >= 200 && code < 300) {
+      return 'assets/weather_backgrounds/weather_thunder_storm.png';
+    }
+    if (code >= 300 && code < 600) {
+      return 'assets/weather_backgrounds/weather_rainy.png';
+    }
+    if (code == 800) {
+      return isNight
+          ? 'assets/weather_backgrounds/night.png'
+          : 'assets/weather_backgrounds/weather_sunny.png';
+    }
+    if (isNight) return 'assets/weather_backgrounds/night.png';
+    return 'assets/weather_backgrounds/weather_cloudy.png';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final firstName = widget.userName.split(' ').isNotEmpty ? widget.userName.split(' ')[0] : "Citizen";
+    final parts = widget.userName.trim().split(RegExp(r'\s+'));
+    final firstName = parts.isNotEmpty && parts.first.isNotEmpty
+        ? parts.first
+        : "Citizen";
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-              colors: [Color(0xFF0A2E5C), Color(0xFF3B82F6)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight
+          image: DecorationImage(
+            image: AssetImage(_weatherBackgroundAsset()),
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
           ),
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              // FIXED: Changed .withOpacity to .withValues
-                color: const Color(0xFF3B82F6).withValues(alpha: 0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 6)
-            )
+              color: Colors.black.withValues(alpha: 0.16),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
           ],
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Stack(
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // FIXED: Changed .withOpacity to .withValues
-                  Text("Magandang araw, $firstName!", style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 14)),
-                  const SizedBox(height: 4),
-                  Text(
-                    _currentLocation,
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.thermostat, color: Colors.white, size: 16),
-                      const SizedBox(width: 4),
-                      Text("$_currentTemp • $_weatherCondition", style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.black.withValues(alpha: 0.62),
+                      Colors.black.withValues(alpha: 0.22),
+                      Colors.black.withValues(alpha: 0.46),
                     ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Magandang araw, $firstName!",
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          _currentLocation,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.2,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.22),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.thermostat,
+                                color: Colors.white,
+                                size: 15,
+                              ),
+                              const SizedBox(width: 5),
+                              Flexible(
+                                child: Text(
+                                  "$_currentTemp • $_weatherCondition",
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.22),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.28),
+                      ),
+                    ),
+                    child: Icon(_weatherIcon, color: Colors.white, size: 40),
                   ),
                 ],
               ),
             ),
-            Container(
-              margin: const EdgeInsets.only(left: 12),
-              padding: const EdgeInsets.all(12),
-              // FIXED: Changed .withOpacity to .withValues
-              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
-              child: Icon(_weatherIcon, color: Colors.white, size: 40),
+            Positioned(
+              right: 14,
+              bottom: 14,
+              child: Material(
+                color: Colors.white.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(999),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            WeatherForecastScreen(userName: widget.userName),
+                      ),
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.28),
+                      ),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.insights_rounded,
+                          color: Colors.white,
+                          size: 15,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          "Forecast",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

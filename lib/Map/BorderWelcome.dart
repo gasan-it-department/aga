@@ -11,6 +11,25 @@ class BorderWelcome extends StatefulWidget {
     required this.onProceed,
   });
 
+  static Future<void> show(
+    BuildContext context, {
+    required String municipalityName,
+  }) {
+    return showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'Border welcome',
+      barrierColor: Colors.transparent,
+      transitionDuration: Duration.zero,
+      pageBuilder: (dialogContext, _, __) {
+        return BorderWelcome(
+          municipalityName: municipalityName,
+          onProceed: () => Navigator.of(dialogContext).pop(),
+        );
+      },
+    );
+  }
+
   @override
   State<BorderWelcome> createState() => _BorderWelcomeState();
 }
@@ -74,12 +93,25 @@ class _BorderWelcomeState extends State<BorderWelcome> with TickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    final bottomNavGap = MediaQuery.of(context).padding.bottom + 64;
     return Scaffold(
-      backgroundColor: const Color(0xFF031024),
+      backgroundColor: Colors.transparent,
       body: Stack(
         children: [
+          Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: bottomNavGap,
+            child: const ColoredBox(color: Color(0xFF031024)),
+          ),
           // --- OPTIMIZATION: RepaintBoundary around the rotating background ---
-          RepaintBoundary(
+          Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: bottomNavGap,
+            child: RepaintBoundary(
             child: AnimatedBuilder(
               animation: _bgController,
               builder: (context, child) {
@@ -103,32 +135,46 @@ class _BorderWelcomeState extends State<BorderWelcome> with TickerProviderStateM
                 );
               },
             ),
+            ),
           ),
 
           // Dark tint overlay (no BackdropFilter; it renders grey/blank on first frames in release)
-          Positioned.fill(
+          Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: bottomNavGap,
             child: Container(
               color: const Color(0xFF020B18).withValues(alpha: 0.6),
             ),
           ),
 
           // --- OPTIMIZATION: RepaintBoundary isolates the particle drawing engine ---
-          const Positioned.fill(
-            child: RepaintBoundary(
+          Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: bottomNavGap,
+            child: const RepaintBoundary(
               child: FloatingParticles(),
             ),
           ),
 
           // --- FOREGROUND CONTENT ---
-          Center(
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: ScaleTransition(
-                  scale: _scaleAnimation,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32.0),
+          Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: bottomNavGap,
+            child: Center(
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: SlideTransition(
+                  position: _slideAnimation,
+                  child: ScaleTransition(
+                    scale: _scaleAnimation,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32.0),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -264,6 +310,7 @@ class _BorderWelcomeState extends State<BorderWelcome> with TickerProviderStateM
                 ),
               ),
             ),
+          ),
           ),
         ],
       ),

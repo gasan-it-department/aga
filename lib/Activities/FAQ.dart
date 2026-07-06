@@ -63,6 +63,18 @@ class _FAQState extends State<FAQ> {
           "Go to My Orders to track the status of each purchase, view the variant and price you ordered, and check delivery progress.",
         ),
         _FaqItem(
+          "What is my buying score?",
+          "Your buying score starts at 100 and reflects your order history. Completed orders add 2 points. Cancelling before a seller accepts deducts 5 points, while cancelling after acceptance deducts 20 points. Scores are limited from 0 to 150.",
+        ),
+        _FaqItem(
+          "Why is Cash on Delivery unavailable?",
+          "Cash on Delivery is disabled when your buying score falls below 80. Complete orders successfully and avoid unnecessary cancellations to improve your score.",
+        ),
+        _FaqItem(
+          "Why am I unable to place an order?",
+          "Buyers with a buying score below 50 cannot place new orders. Contact an administrator for assistance or account review.",
+        ),
+        _FaqItem(
           "What does 'Stock: N/A' mean?",
           "It means the seller marked the item as having no fixed stock limit (for example, made-to-order or service items). These items never show as sold out.",
         ),

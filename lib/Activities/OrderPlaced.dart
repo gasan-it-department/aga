@@ -16,11 +16,13 @@ class OrderPlaced extends StatelessWidget {
   final String sellerName;
   final List<Map<String, dynamic>> items; // {name, qty, unit_price, line_total}
   final num total;
+  final num deliveryFee;
   final String paymentChannel;
   final String deliveryType; // "Delivery" / "Pickup"
   final Map<String, dynamic> deliveryAddress;
   final String notes;
   final DateTime placedAt;
+  final bool returnToPrevious;
 
   const OrderPlaced({
     super.key,
@@ -28,11 +30,13 @@ class OrderPlaced extends StatelessWidget {
     required this.sellerName,
     required this.items,
     required this.total,
+    this.deliveryFee = 0,
     required this.paymentChannel,
     required this.deliveryType,
     required this.deliveryAddress,
     required this.notes,
     required this.placedAt,
+    this.returnToPrevious = false,
   });
 
   static const Color _primaryDark = Color(0xFF0F172A);
@@ -64,6 +68,14 @@ class OrderPlaced extends StatelessWidget {
 
   String _money(num v) => "PHP ${Utility().formatPrice(v)}";
 
+  num get _itemsSubtotal {
+    num sum = 0;
+    for (final item in items) {
+      sum += (item['line_total'] as num?) ?? 0;
+    }
+    return sum;
+  }
+
   Future<Uint8List?> _renderReceiptPng() async {
     final pdfBytes = await _buildReceiptPdf();
     await for (final page in Printing.raster(pdfBytes, pages: [0], dpi: 220)) {
@@ -81,31 +93,42 @@ class OrderPlaced extends StatelessWidget {
 
       if (kIsWeb) {
         // On web, hand the PNG to the system share/save sheet.
-        await SharePlus.instance.share(ShareParams(
-          files: [XFile.fromData(pngBytes, mimeType: 'image/png', name: filename)],
-          fileNameOverrides: [filename],
-          subject: 'Order Receipt $orderId',
-        ));
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [
+              XFile.fromData(pngBytes, mimeType: 'image/png', name: filename),
+            ],
+            fileNameOverrides: [filename],
+            subject: 'Order Receipt $orderId',
+          ),
+        );
         return;
       }
 
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/$filename');
       await file.writeAsBytes(pngBytes, flush: true);
-      await SharePlus.instance.share(ShareParams(
-        files: [XFile(file.path, mimeType: 'image/png', name: filename)],
-        subject: 'Order Receipt $orderId',
-      ));
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'image/png', name: filename)],
+          subject: 'Order Receipt $orderId',
+        ),
+      );
     } catch (e) {
       if (context.mounted) {
-        SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Could not save receipt: $e");
+        SnackbarMessenger().showSnackbar(
+          context,
+          SnackbarMessenger.failed,
+          "Could not save receipt: $e",
+        );
       }
     }
   }
 
   Future<Uint8List> _buildReceiptPdf() async {
     final doc = pw.Document();
-    final df = "${placedAt.year}-${placedAt.month.toString().padLeft(2, '0')}-${placedAt.day.toString().padLeft(2, '0')} "
+    final df =
+        "${placedAt.year}-${placedAt.month.toString().padLeft(2, '0')}-${placedAt.day.toString().padLeft(2, '0')} "
         "${placedAt.hour.toString().padLeft(2, '0')}:${placedAt.minute.toString().padLeft(2, '0')}";
 
     final buyerName = _buyerName.isEmpty ? '—' : _buyerName;
@@ -130,20 +153,43 @@ class OrderPlaced extends StatelessWidget {
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text("AGA Gasan App",
-                          style: pw.TextStyle(color: PdfColors.white, fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                      pw.Text(
+                        "AGA Gasan App",
+                        style: pw.TextStyle(
+                          color: PdfColors.white,
+                          fontSize: 18,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
                       pw.SizedBox(height: 2),
-                      pw.Text("Order Receipt",
-                          style: pw.TextStyle(color: PdfColor.fromInt(0xFFCBD5E1), fontSize: 11)),
+                      pw.Text(
+                        "Order Receipt",
+                        style: pw.TextStyle(
+                          color: PdfColor.fromInt(0xFFCBD5E1),
+                          fontSize: 11,
+                        ),
+                      ),
                     ],
                   ),
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
-                      pw.Text(orderId,
-                          style: pw.TextStyle(color: PdfColors.white, fontSize: 12, fontWeight: pw.FontWeight.bold)),
+                      pw.Text(
+                        orderId,
+                        style: pw.TextStyle(
+                          color: PdfColors.white,
+                          fontSize: 12,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
                       pw.SizedBox(height: 2),
-                      pw.Text(df, style: pw.TextStyle(color: PdfColor.fromInt(0xFFCBD5E1), fontSize: 10)),
+                      pw.Text(
+                        df,
+                        style: pw.TextStyle(
+                          color: PdfColor.fromInt(0xFFCBD5E1),
+                          fontSize: 10,
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -154,7 +200,9 @@ class OrderPlaced extends StatelessWidget {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Expanded(
-                  child: _pdfBlock("Shop", [sellerName.isEmpty ? '—' : sellerName]),
+                  child: _pdfBlock("Shop", [
+                    sellerName.isEmpty ? '—' : sellerName,
+                  ]),
                 ),
                 pw.SizedBox(width: 12),
                 pw.Expanded(
@@ -175,15 +223,31 @@ class OrderPlaced extends StatelessWidget {
             pw.SizedBox(height: 12),
             _pdfBlock("Payment", [paymentChannel]),
             pw.SizedBox(height: 18),
-            pw.Text("ITEMS",
-                style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF64748B), letterSpacing: 1.2)),
+            pw.Text(
+              "ITEMS",
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColor.fromInt(0xFF64748B),
+                letterSpacing: 1.2,
+              ),
+            ),
             pw.SizedBox(height: 6),
             pw.Table.fromTextArray(
               cellAlignment: pw.Alignment.centerLeft,
               cellStyle: const pw.TextStyle(fontSize: 10),
-              headerStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-              headerDecoration: pw.BoxDecoration(color: PdfColor.fromInt(0xFF2563EB)),
-              cellPadding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              headerStyle: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.white,
+              ),
+              headerDecoration: pw.BoxDecoration(
+                color: PdfColor.fromInt(0xFF2563EB),
+              ),
+              cellPadding: const pw.EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 6,
+              ),
               columnWidths: {
                 0: const pw.FlexColumnWidth(4),
                 1: const pw.FlexColumnWidth(1),
@@ -201,26 +265,42 @@ class OrderPlaced extends StatelessWidget {
               }).toList(),
             ),
             pw.SizedBox(height: 18),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.end,
-              children: [
-                pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: pw.BoxDecoration(
-                    color: PdfColor.fromInt(0xFFEE4D2D),
-                    borderRadius: pw.BorderRadius.circular(8),
-                  ),
-                  child: pw.Text(
-                    "TOTAL  ${_money(total)}",
-                    style: pw.TextStyle(color: PdfColors.white, fontSize: 13, fontWeight: pw.FontWeight.bold),
-                  ),
+            pw.Align(
+              alignment: pw.Alignment.centerRight,
+              child: pw.Container(
+                width: 220,
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColor.fromInt(0xFFE2E8F0)),
+                  borderRadius: pw.BorderRadius.circular(8),
                 ),
-              ],
+                child: pw.Column(
+                  children: [
+                    _pdfAmountRow("Subtotal", _itemsSubtotal),
+                    if (deliveryFee > 0) ...[
+                      pw.SizedBox(height: 6),
+                      _pdfAmountRow("Delivery fee", deliveryFee),
+                    ],
+                    pw.SizedBox(height: 6),
+                    _pdfAmountRow("Voucher discount", 0),
+                    pw.SizedBox(height: 8),
+                    pw.Container(
+                      height: 1,
+                      color: PdfColor.fromInt(0xFFE2E8F0),
+                    ),
+                    pw.SizedBox(height: 8),
+                    _pdfAmountRow("Total", total, isTotal: true),
+                  ],
+                ),
+              ),
             ),
             pw.SizedBox(height: 24),
             pw.Text(
               "This receipt was generated automatically by the AGA Gasan App. Keep it for your records.",
-              style: pw.TextStyle(fontSize: 9, color: PdfColor.fromInt(0xFF64748B)),
+              style: pw.TextStyle(
+                fontSize: 9,
+                color: PdfColor.fromInt(0xFF64748B),
+              ),
             ),
           ];
         },
@@ -239,10 +319,19 @@ class OrderPlaced extends StatelessWidget {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(label.toUpperCase(),
-              style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF64748B), letterSpacing: 1.2)),
+          pw.Text(
+            label.toUpperCase(),
+            style: pw.TextStyle(
+              fontSize: 9,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColor.fromInt(0xFF64748B),
+              letterSpacing: 1.2,
+            ),
+          ),
           pw.SizedBox(height: 4),
-          ...lines.where((l) => l.trim().isNotEmpty).map(
+          ...lines
+              .where((l) => l.trim().isNotEmpty)
+              .map(
                 (l) => pw.Padding(
                   padding: const pw.EdgeInsets.only(bottom: 2),
                   child: pw.Text(l, style: const pw.TextStyle(fontSize: 10)),
@@ -250,6 +339,30 @@ class OrderPlaced extends StatelessWidget {
               ),
         ],
       ),
+    );
+  }
+
+  pw.Widget _pdfAmountRow(String label, num value, {bool isTotal = false}) {
+    return pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(
+          label,
+          style: pw.TextStyle(
+            fontSize: isTotal ? 12 : 10,
+            fontWeight: isTotal ? pw.FontWeight.bold : pw.FontWeight.normal,
+            color: PdfColor.fromInt(isTotal ? 0xFF0F172A : 0xFF64748B),
+          ),
+        ),
+        pw.Text(
+          _money(value),
+          style: pw.TextStyle(
+            fontSize: isTotal ? 12 : 10,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColor.fromInt(isTotal ? 0xFFEE4D2D : 0xFF0F172A),
+          ),
+        ),
+      ],
     );
   }
 
@@ -268,7 +381,9 @@ class OrderPlaced extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: IconButton(
                     icon: const Icon(Icons.close_rounded, color: _primaryDark),
-                    onPressed: () => Navigator.popUntil(context, (r) => r.isFirst),
+                    onPressed: () => returnToPrevious
+                        ? Navigator.pop(context, true)
+                        : Navigator.popUntil(context, (r) => r.isFirst),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -277,7 +392,10 @@ class OrderPlaced extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 26, 20, 22),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [_success.withValues(alpha: 0.12), _accent.withValues(alpha: 0.06)],
+                      colors: [
+                        _success.withValues(alpha: 0.12),
+                        _accent.withValues(alpha: 0.06),
+                      ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -290,38 +408,77 @@ class OrderPlaced extends StatelessWidget {
                         tween: Tween(begin: 0, end: 1),
                         duration: const Duration(milliseconds: 520),
                         curve: Curves.easeOutBack,
-                        builder: (_, v, child) => Transform.scale(scale: v, child: child),
+                        builder: (_, v, child) =>
+                            Transform.scale(scale: v, child: child),
                         child: Container(
-                          width: 80, height: 80,
-                          decoration: BoxDecoration(color: _success, shape: BoxShape.circle, boxShadow: [
-                            BoxShadow(color: _success.withValues(alpha: 0.4), blurRadius: 18, offset: const Offset(0, 8)),
-                          ]),
-                          child: const Icon(Icons.check_rounded, color: Colors.white, size: 48),
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: _success,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: _success.withValues(alpha: 0.4),
+                                blurRadius: 18,
+                                offset: const Offset(0, 8),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.check_rounded,
+                            color: Colors.white,
+                            size: 48,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 14),
-                      const Text("Order Placed",
-                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: _primaryDark, letterSpacing: -0.4)),
+                      const Text(
+                        "Order Placed",
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900,
+                          color: _primaryDark,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
                       const SizedBox(height: 6),
                       Text(
                         "Thanks for ordering from ${sellerName.isEmpty ? 'this shop' : sellerName}. We've notified the seller — you'll get updates as it progresses.",
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: _textSecondary, fontSize: 13, height: 1.45, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: _textSecondary,
+                          fontSize: 13,
+                          height: 1.45,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(color: _border),
                         ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.tag_rounded, size: 14, color: _accent),
-                          const SizedBox(width: 6),
-                          Text(orderId,
-                              style: TextStyle(color: _primaryDark, fontWeight: FontWeight.w900, fontSize: 12.5, letterSpacing: 0.3)),
-                        ]),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.tag_rounded, size: 14, color: _accent),
+                            const SizedBox(width: 6),
+                            Text(
+                              orderId,
+                              style: TextStyle(
+                                color: _primaryDark,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12.5,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -338,18 +495,47 @@ class OrderPlaced extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("ORDER SUMMARY",
-                          style: TextStyle(color: _textSecondary, fontWeight: FontWeight.w900, fontSize: 10.5, letterSpacing: 1.2)),
+                      const Text(
+                        "ORDER SUMMARY",
+                        style: TextStyle(
+                          color: _textSecondary,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 10.5,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
                       const SizedBox(height: 10),
                       for (final it in items) _summaryRow(it),
                       const Divider(height: 22, color: _border),
-                      Row(children: [
-                        const Text("Total",
-                            style: TextStyle(color: _primaryDark, fontWeight: FontWeight.w900, fontSize: 14)),
-                        const Spacer(),
-                        Text(_money(total),
-                            style: const TextStyle(color: _orange, fontWeight: FontWeight.w900, fontSize: 18)),
-                      ]),
+                      _amountRow("Subtotal", _itemsSubtotal),
+                      if (deliveryFee > 0) ...[
+                        const SizedBox(height: 8),
+                        _amountRow("Delivery fee", deliveryFee),
+                      ],
+                      const SizedBox(height: 8),
+                      _amountRow("Voucher discount", 0),
+                      const Divider(height: 22, color: _border),
+                      Row(
+                        children: [
+                          const Text(
+                            "Total",
+                            style: TextStyle(
+                              color: _primaryDark,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            _money(total),
+                            style: const TextStyle(
+                              color: _orange,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -365,16 +551,36 @@ class OrderPlaced extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text("DETAILS",
-                          style: TextStyle(color: _textSecondary, fontWeight: FontWeight.w900, fontSize: 10.5, letterSpacing: 1.2)),
+                      const Text(
+                        "DETAILS",
+                        style: TextStyle(
+                          color: _textSecondary,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 10.5,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
                       const SizedBox(height: 10),
-                      _kv(Icons.local_shipping_rounded, "Fulfillment", deliveryType),
-                      if (_addressLine.isNotEmpty) _kv(Icons.location_on_rounded, "Address", _addressLine),
-                      if (_buyerName.isNotEmpty) _kv(Icons.person_rounded, "Buyer", _buyerName),
-                      if ((deliveryAddress['contact_number'] ?? '').toString().isNotEmpty)
-                        _kv(Icons.call_rounded, "Contact", deliveryAddress['contact_number'].toString()),
+                      _kv(
+                        Icons.local_shipping_rounded,
+                        "Fulfillment",
+                        deliveryType,
+                      ),
+                      if (_addressLine.isNotEmpty)
+                        _kv(Icons.location_on_rounded, "Address", _addressLine),
+                      if (_buyerName.isNotEmpty)
+                        _kv(Icons.person_rounded, "Buyer", _buyerName),
+                      if ((deliveryAddress['contact_number'] ?? '')
+                          .toString()
+                          .isNotEmpty)
+                        _kv(
+                          Icons.call_rounded,
+                          "Contact",
+                          deliveryAddress['contact_number'].toString(),
+                        ),
                       _kv(Icons.payments_rounded, "Payment", paymentChannel),
-                      if (notes.isNotEmpty) _kv(Icons.notes_rounded, "Notes", notes),
+                      if (notes.isNotEmpty)
+                        _kv(Icons.notes_rounded, "Notes", notes),
                     ],
                   ),
                 ),
@@ -388,11 +594,16 @@ class OrderPlaced extends StatelessWidget {
                       foregroundColor: Colors.white,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     onPressed: () => _saveReceiptImage(context),
                     icon: const Icon(Icons.image_rounded, size: 18),
-                    label: const Text("Save Receipt as Image", style: TextStyle(fontWeight: FontWeight.w900)),
+                    label: const Text(
+                      "Save Receipt as Image",
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -404,22 +615,40 @@ class OrderPlaced extends StatelessWidget {
                       foregroundColor: Colors.white,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     onPressed: () {
                       Navigator.popUntil(context, (r) => r.isFirst);
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const UserOrders()));
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const UserOrders()),
+                      );
                     },
                     icon: const Icon(Icons.receipt_long_rounded, size: 18),
-                    label: const Text("View My Orders", style: TextStyle(fontWeight: FontWeight.w900)),
+                    label: const Text(
+                      "View My Orders",
+                      style: TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
                 TextButton.icon(
-                  onPressed: () => Navigator.popUntil(context, (r) => r.isFirst),
-                  icon: Icon(Icons.home_rounded, color: _textSecondary, size: 18),
-                  label: Text("Back to Home",
-                      style: TextStyle(color: _textSecondary, fontWeight: FontWeight.w800)),
+                  onPressed: () =>
+                      Navigator.popUntil(context, (r) => r.isFirst),
+                  icon: Icon(
+                    Icons.home_rounded,
+                    color: _textSecondary,
+                    size: 18,
+                  ),
+                  label: Text(
+                    "Back to Home",
+                    style: TextStyle(
+                      color: _textSecondary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -440,27 +669,78 @@ class OrderPlaced extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(color: _accent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-            child: Text("×$qty",
-                style: const TextStyle(color: _accent, fontWeight: FontWeight.w900, fontSize: 11)),
+            decoration: BoxDecoration(
+              color: _accent.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              "×$qty",
+              style: const TextStyle(
+                color: _accent,
+                fontWeight: FontWeight.w900,
+                fontSize: 11,
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text((it['name'] ?? 'Item').toString(),
-                    style: const TextStyle(color: _primaryDark, fontWeight: FontWeight.w800, fontSize: 13)),
+                Text(
+                  (it['name'] ?? 'Item').toString(),
+                  style: const TextStyle(
+                    color: _primaryDark,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text("${_money(unit)} each",
-                    style: TextStyle(color: _textSecondary, fontWeight: FontWeight.w600, fontSize: 11)),
+                Text(
+                  "${_money(unit)} each",
+                  style: TextStyle(
+                    color: _textSecondary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                  ),
+                ),
               ],
             ),
           ),
-          Text(_money(line),
-              style: const TextStyle(color: _primaryDark, fontWeight: FontWeight.w900, fontSize: 13)),
+          Text(
+            _money(line),
+            style: const TextStyle(
+              color: _primaryDark,
+              fontWeight: FontWeight.w900,
+              fontSize: 13,
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _amountRow(String label, num value) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: _textSecondary,
+            fontWeight: FontWeight.w800,
+            fontSize: 13,
+          ),
+        ),
+        const Spacer(),
+        Text(
+          _money(value),
+          style: const TextStyle(
+            color: _primaryDark,
+            fontWeight: FontWeight.w900,
+            fontSize: 13,
+          ),
+        ),
+      ],
     );
   }
 
@@ -472,18 +752,33 @@ class OrderPlaced extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(color: _accent.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(
+              color: _accent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
             child: Icon(icon, size: 14, color: _accent),
           ),
           const SizedBox(width: 10),
           SizedBox(
             width: 86,
-            child: Text(label,
-                style: TextStyle(color: _textSecondary, fontWeight: FontWeight.w800, fontSize: 11.5)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: _textSecondary,
+                fontWeight: FontWeight.w800,
+                fontSize: 11.5,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value,
-                style: const TextStyle(color: _primaryDark, fontWeight: FontWeight.w700, fontSize: 12.5)),
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: _primaryDark,
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+              ),
+            ),
           ),
         ],
       ),

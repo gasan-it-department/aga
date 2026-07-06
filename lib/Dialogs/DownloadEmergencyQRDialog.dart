@@ -13,18 +13,15 @@ import 'package:permission_handler/permission_handler.dart'; // --- NEW: Permiss
 
 class DownloadEmergencyQRDialog {
   static void show(
-      BuildContext context, {
-        required String title,
-        required String rawNumber,
-      }) {
+    BuildContext context, {
+    required String title,
+    required String rawNumber,
+  }) {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.6),
       builder: (BuildContext context) {
-        return _DownloadQRDialogContent(
-          title: title,
-          rawNumber: rawNumber,
-        );
+        return _DownloadQRDialogContent(title: title, rawNumber: rawNumber);
       },
     );
   }
@@ -40,7 +37,8 @@ class _DownloadQRDialogContent extends StatefulWidget {
   });
 
   @override
-  State<_DownloadQRDialogContent> createState() => _DownloadQRDialogContentState();
+  State<_DownloadQRDialogContent> createState() =>
+      _DownloadQRDialogContentState();
 }
 
 class _DownloadQRDialogContentState extends State<_DownloadQRDialogContent> {
@@ -68,28 +66,36 @@ class _DownloadQRDialogContentState extends State<_DownloadQRDialogContent> {
           status = await Permission.photosAddOnly.request();
           if (status.isDenied) status = await Permission.photos.request();
         } else {
-          status = await Permission.storage.request();
-          if (status.isDenied) {
-            status = await Permission.photos.request();
-          }
+          // Android saves through MediaStore and selects images through the
+          // system Photo Picker, so broad storage/media access is unnecessary.
+          status = PermissionStatus.granted;
         }
 
         if (!status.isGranted && !status.isLimited) {
           setState(() => _isSaving = false);
           if (mounted) {
-            SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Permission is denied. Please enable it in the settings.");
+            SnackbarMessenger().showSnackbar(
+              context,
+              SnackbarMessenger.failed,
+              "Permission is denied. Please enable it in the settings.",
+            );
           }
           return;
         }
       }
 
-      RenderRepaintBoundary boundary = _qrBoundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      RenderRepaintBoundary boundary =
+          _qrBoundaryKey.currentContext!.findRenderObject()
+              as RenderRepaintBoundary;
       ui.Image image = await boundary.toImage(pixelRatio: 3.0);
-      ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      ByteData? byteData = await image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
       Uint8List pngBytes = byteData!.buffer.asUint8List();
 
       bool success = false;
-      final String fileName = "AGA_Emergency_${widget.title.replaceAll(' ', '_')}.png";
+      final String fileName =
+          "AGA_Emergency_${widget.title.replaceAll(' ', '_')}.png";
 
       if (kIsWeb) {
         final base64data = base64Encode(pngBytes);
@@ -114,7 +120,11 @@ class _DownloadQRDialogContentState extends State<_DownloadQRDialogContent> {
 
         if (success) {
           Navigator.pop(context);
-          SnackbarMessenger().showSnackbar(context, SnackbarMessenger.success, kIsWeb ? "QR Code downloaded" : "QR Code saved to gallery");
+          SnackbarMessenger().showSnackbar(
+            context,
+            SnackbarMessenger.success,
+            kIsWeb ? "QR Code downloaded" : "QR Code saved to gallery",
+          );
         } else {
           throw Exception("Could not write file to storage.");
         }
@@ -186,18 +196,29 @@ class _DownloadQRDialogContentState extends State<_DownloadQRDialogContent> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
                         color: activeColor,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(18),
+                        ),
                       ),
                       child: Column(
                         children: [
                           const Text(
                             "AGA EMERGENCY",
-                            style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.5,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             widget.title,
-                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ],
                       ),
@@ -210,8 +231,14 @@ class _DownloadQRDialogContentState extends State<_DownloadQRDialogContent> {
                         data: _qrData, // Plain number
                         version: QrVersions.auto,
                         size: 160.0,
-                        eyeStyle: QrEyeStyle(eyeShape: QrEyeShape.square, color: primaryDark),
-                        dataModuleStyle: QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: textPrimary),
+                        eyeStyle: QrEyeStyle(
+                          eyeShape: QrEyeShape.square,
+                          color: primaryDark,
+                        ),
+                        dataModuleStyle: QrDataModuleStyle(
+                          dataModuleShape: QrDataModuleShape.square,
+                          color: textPrimary,
+                        ),
                       ),
                     ),
 
@@ -220,18 +247,29 @@ class _DownloadQRDialogContentState extends State<_DownloadQRDialogContent> {
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                       decoration: const BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
+                        borderRadius: BorderRadius.vertical(
+                          bottom: Radius.circular(18),
+                        ),
                       ),
                       child: Column(
                         children: [
                           Text(
                             "EMERGENCY HOTLINE",
-                            style: TextStyle(color: textSecondary, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.0),
+                            style: TextStyle(
+                              color: textSecondary,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.0,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             widget.rawNumber,
-                            style: TextStyle(color: primaryDark, fontSize: 16, fontWeight: FontWeight.w900),
+                            style: TextStyle(
+                              color: primaryDark,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ],
                       ),
@@ -251,12 +289,18 @@ class _DownloadQRDialogContentState extends State<_DownloadQRDialogContent> {
                     child: TextButton(
                       style: TextButton.styleFrom(
                         backgroundColor: const Color(0xFFF1F5F9),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                       onPressed: () => Navigator.pop(context),
                       child: Text(
                         "Cancel",
-                        style: TextStyle(color: textPrimary, fontWeight: FontWeight.w800, fontSize: 14),
+                        style: TextStyle(
+                          color: textPrimary,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -270,15 +314,27 @@ class _DownloadQRDialogContentState extends State<_DownloadQRDialogContent> {
                         backgroundColor: const Color(0xFF3B82F6), // accentBlue
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                       onPressed: _isSaving ? null : _captureAndSaveQR,
                       icon: _isSaving
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
                           : const Icon(Icons.download_rounded, size: 18),
                       label: Text(
                         _isSaving ? "Saving..." : "Save",
-                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
                   ),

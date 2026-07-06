@@ -30,6 +30,30 @@ class GeoLocation {
 }
 
 class GeoCoding {
+  static bool isWithinMarinduque(GeoLocation location) {
+    var municipality = location.municipality.trim().toLowerCase();
+    municipality = municipality
+        .replaceFirst('municipality of ', '')
+        .replaceFirst('city of ', '')
+        .replaceAll('.', '');
+    if (municipality == 'sta cruz') municipality = 'santa cruz';
+    const municipalities = {
+      'boac',
+      'buenavista',
+      'gasan',
+      'mogpog',
+      'santa cruz',
+      'torrijos',
+    };
+    final province = location.province?.trim().toLowerCase() ?? '';
+    final validZip =
+        location.zipCode != null &&
+        location.zipCode! >= 4900 &&
+        location.zipCode! <= 4905;
+    return validZip ||
+        (province.contains('marinduque') &&
+            municipalities.contains(municipality));
+  }
 
   static int _getZipCode(String? municipality, String? postalCode) {
     int? parsed = int.tryParse(postalCode ?? "");
@@ -71,26 +95,31 @@ class GeoCoding {
 
       if (kIsWeb) {
         final url = Uri.parse(
-            'https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.latitude}&lon=${position.longitude}&zoom=14&addressdetails=1'
+          'https://nominatim.openstreetmap.org/reverse?format=json&lat=${position.latitude}&lon=${position.longitude}&zoom=14&addressdetails=1',
         );
 
-        final response = await http.get(url, headers: {
-          'User-Agent': 'AgaApp/1.0 (Contact: your_email@example.com)'
-        });
+        final response = await http.get(
+          url,
+          headers: {
+            'User-Agent': 'AgaApp/1.0 (Contact: your_email@example.com)',
+          },
+        );
 
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
           final address = data['address'];
 
           if (address != null) {
-            String? municipality = address['municipality'] ??
+            String? municipality =
+                address['municipality'] ??
                 address['city'] ??
                 address['town'] ??
                 address['village'];
 
             // Use the zip helper
             int zipCode = _getZipCode(municipality, address['postcode']);
-            String? province = address['state'] ?? address['county'] ?? address['region'];
+            String? province =
+                address['state'] ?? address['county'] ?? address['region'];
             String? country = address['country'];
 
             if (municipality != null) {
@@ -120,7 +149,8 @@ class GeoCoding {
           // Use the zip helper to avoid getting 0
           int zipCode = _getZipCode(municipality, place.postalCode);
 
-          String? province = place.subAdministrativeArea ?? place.administrativeArea;
+          String? province =
+              place.subAdministrativeArea ?? place.administrativeArea;
           String? country = place.country;
 
           if (municipality != null) {

@@ -1,63 +1,24 @@
-import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:gasan_port_tracker/Utility/Utility.dart';
+import 'package:gasan_port_tracker/Activities/MainNavigation.dart';
+import 'package:gasan_port_tracker/Activities/Home/Cards/LiveTouristCard.dart';
+import 'package:gasan_port_tracker/Activities/MarketplaceShops.dart';
+import 'package:gasan_port_tracker/Activities/Seller/SellerProfile.dart';
+import 'package:gasan_port_tracker/Activities/ViewShop.dart';
 import 'package:gasan_port_tracker/Utility/Municipalities.dart';
-import 'package:gasan_port_tracker/Activities/Seller/StoreItemDetails.dart';
-import 'package:gasan_port_tracker/Activities/StoreItemsGallery.dart';
-
-// --- DATA MODEL ---
-class FoodItem {
-  final String id;
-  final String name;
-  final String merchant;
-  final String price;
-  final String imageSource; // Can be URL or Hex
-  final Map<String, dynamic> rawData; // Keep raw data for navigation
-
-  FoodItem({
-    required this.id,
-    required this.name,
-    required this.merchant,
-    required this.price,
-    required this.imageSource,
-    required this.rawData,
-  });
-
-  factory FoodItem.fromMap(Map<String, dynamic> map) {
-    // Extract merchant name from joined 'sellers' table
-    final seller = map['sellers'];
-    final merchantName = seller != null ? seller['seller_store_name'] : "Unknown Merchant";
-
-    // Handle images list (take first image)
-    String img = "";
-    final rawImages = map['item_images'];
-    if (rawImages is List && rawImages.isNotEmpty) {
-      img = rawImages[0].toString();
-    } else if (rawImages is String) {
-      img = rawImages;
-    }
-
-    return FoodItem(
-      id: map['item_id']?.toString() ?? "",
-      name: map['item_name']?.toString() ?? "Unnamed Item",
-      merchant: merchantName.toString(),
-      price: "₱${Utility().formatPrice(map['item_price'])}",
-      imageSource: img,
-      rawData: map,
-    );
-  }
-}
+import 'package:gasan_port_tracker/Utility/Utility.dart';
 
 class DynamicDiningRow extends StatefulWidget {
   final String municipality;
   final int municipalZipCode;
+  final List<Map<String, dynamic>> touristSpots;
 
   const DynamicDiningRow({
     super.key,
     this.municipality = "Gasan",
     this.municipalZipCode = 0,
+    this.touristSpots = const [],
   });
 
   @override
@@ -66,332 +27,621 @@ class DynamicDiningRow extends StatefulWidget {
 
 class _DynamicDiningRowState extends State<DynamicDiningRow> {
   final _supabase = Supabase.instance.client;
-  List<FoodItem> _allItems = [];
-  List<FoodItem> _liveSlots = [];
-  bool _isLoading = true;
+  final _random = Random();
+  List<Map<String, dynamic>> _shops = [];
+  bool _loading = true;
 
-  Timer? _timer;
-  final Random _random = Random();
-  int _fetchToken = 0;
-
-  // Premium E-Commerce Palette
-  final Color primaryDark = const Color(0xFF0F172A);
-  final Color textSecondary = const Color(0xFF64748B);
-  final Color themeOrange = const Color(0xFFEA580C);
-  final Color cardBorder = const Color(0xFFE2E8F0);
+  static const primaryDark = Color(0xFF0F172A);
+  static const textSecondary = Color(0xFF64748B);
+  static const cardBorder = Color(0xFFE2E8F0);
+  static const accent = Color(0xFF2563EB);
+  static const placeAccent = Color(0xFF059669);
 
   @override
   void initState() {
     super.initState();
-    _fetchFoodItems();
+    _fetchShops();
   }
 
   @override
   void didUpdateWidget(covariant DynamicDiningRow oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.municipalZipCode != widget.municipalZipCode) {
-      _timer?.cancel();
-      _isLoading = true;
-      _fetchFoodItems();
+      _fetchShops();
     }
   }
 
-  Future<void> _fetchFoodItems() async {
-    final token = ++_fetchToken;
-    _timer?.cancel();
-    final zip = widget.municipalZipCode;
-    debugPrint("Dining fetch zip=$zip token=$token");
-    _allItems = [];
-    if (mounted) setState(() => _liveSlots = []);
-
+  Future<void> _fetchShops() async {
+    if (mounted) setState(() => _loading = true);
     try {
-      var query = _supabase
-          .from('store_items')
-          .select('*, sellers(seller_store_name, seller_logo, seller_store_address)')
-          .eq('item_type', 'food')
-          .eq('item_available', true);
-
-      final data = await query.limit(50);
-      if (token != _fetchToken) {
-        debugPrint("Dining fetch stale token=$token (current=$_fetchToken), discarding");
-        return;
-      }
-      var rows = List<Map<String, dynamic>>.from(data);
-      if (zip != 0) {
-        rows = rows.where((item) {
-          final origin = num.tryParse('${item['item_municipality_origin'] ?? ''}');
-          if (origin != null && origin == zip) return true;
-          final addr = item['sellers']?['seller_store_address'];
-          if (addr is Map) {
-            final sellerZip = num.tryParse('${addr['zip_code'] ?? ''}');
-            if (sellerZip != null && sellerZip == zip) return true;
-          }
-          return false;
+      final data = await _supabase
+          .from('sellers')
+          .select()
+          .eq('seller_store_status', 'visible')
+          .limit(50);
+      var shops = List<Map<String, dynamic>>.from(data);
+      if (widget.municipalZipCode != 0) {
+        shops = shops.where((shop) {
+          final address = shop['seller_store_address'];
+          if (address is! Map) return false;
+          return num.tryParse('${address['zip_code'] ?? ''}') ==
+              widget.municipalZipCode;
         }).toList();
       }
-      debugPrint("Dining fetched ${rows.length} items for zip=$zip");
-
-      _allItems = rows.map((item) => FoodItem.fromMap(item)).toList();
-      _setupLiveSlots();
-    } catch (e) {
-      debugPrint("Error fetching food items: $e");
+      shops.shuffle(_random);
+      if (mounted) setState(() => _shops = shops.take(12).toList());
+    } catch (error) {
+      debugPrint('Discover shops fetch failed: $error');
     } finally {
-      if (token == _fetchToken && mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _loading = false);
     }
-  }
-
-  void _setupLiveSlots() {
-    if (_allItems.isEmpty) return;
-
-    // Grab items up to max 10
-    int initialCount = min(10, _allItems.length);
-    List<FoodItem> shuffledItems = List.from(_allItems)..shuffle(_random);
-    
-    setState(() {
-      _liveSlots = shuffledItems.take(initialCount).toList();
-    });
-
-    _startRotationTimer();
-  }
-
-  void _startRotationTimer() {
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(milliseconds: 3500), (timer) {
-      if (!mounted) return;
-      if (_allItems.length <= _liveSlots.length) return;
-
-      List<FoodItem> availableItems = _allItems.where((item) => !_liveSlots.any((slot) => slot.id == item.id)).toList();
-
-      if (availableItems.isEmpty) return;
-
-      setState(() {
-        int randomSlotIndex = _random.nextInt(_liveSlots.length);
-        FoodItem newItem = availableItems[_random.nextInt(availableItems.length)];
-        _liveSlots[randomSlotIndex] = newItem;
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const SizedBox.shrink();
-    if (_liveSlots.isEmpty) return const SizedBox.shrink();
+    if (_loading || _shops.isEmpty) return const SizedBox.shrink();
+    final municipality =
+        Municipalities.getNameByZip(widget.municipalZipCode) ??
+        widget.municipality;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      padding: const EdgeInsets.fromLTRB(20, 24, 0, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildSectionHeader(),
-          const SizedBox(height: 16),
-
-          LayoutBuilder(
-            builder: (context, constraints) {
-              // Create the list of cards with a fixed width to prevent stretching
-              List<Widget> rowChildren = [];
-              for (int i = 0; i < _liveSlots.length; i++) {
-                rowChildren.add(
-                  SizedBox(
-                    width: 140, // Fixed width like Shopee items
-                    child: _buildECommerceCard(_liveSlots[i]),
-                  ),
-                );
-                if (i < _liveSlots.length - 1) {
-                  rowChildren.add(const SizedBox(width: 12)); // Consistent spacing
-                }
-              }
-
-              return SizedBox(
-                height: 220,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: rowChildren,
-                  ),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            "DISCOVER FOODS IN ${(Municipalities.getNameByZip(widget.municipalZipCode) ?? widget.municipality).toUpperCase()}",
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textSecondary, letterSpacing: 0.8),
-          ),
-          InkWell(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const StoreItemsGallery()),
-              );
-            },
-            borderRadius: BorderRadius.circular(4),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              child: Row(
-                children: [
-                  Text(
-                    "See More",
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: themeOrange),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.chevron_right_rounded, color: themeOrange, size: 18),
-                ],
-              ),
+          _sectionTitle(
+            icon: Icons.storefront_rounded,
+            title: "Local Shops",
+            subtitle: "Handpicked stores around $municipality",
+            count: "${_shops.length}",
+            color: accent,
+            actionLabel: "Marketplace",
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const MarketplaceShops()),
             ),
           ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 190,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.only(right: 20),
+              itemCount: _shops.length,
+              separatorBuilder: (context, index) => const SizedBox(width: 12),
+              itemBuilder: (_, index) => _shopCard(_shops[index]),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.only(right: 20),
+            child: _sellerCtaCard(),
+          ),
+          if (widget.touristSpots.isNotEmpty) ...[
+            const SizedBox(height: 30),
+            _sectionTitle(
+              icon: Icons.travel_explore_rounded,
+              title: "Places to Explore",
+              subtitle: "Scenic spots and tourist favorites",
+              count: "${widget.touristSpots.length}",
+              color: placeAccent,
+              actionLabel: "Map",
+              onPressed: () => MainNavigation.selectedTab.value = 1,
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 200,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.only(right: 20),
+                itemCount: widget.touristSpots.length,
+                separatorBuilder: (context, index) => const SizedBox(width: 14),
+                itemBuilder: (_, index) => TourismView(
+                  key: ValueKey(widget.touristSpots[index]['spot_id']),
+                  spot: widget.touristSpots[index],
+                  performanceMode: true,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildECommerceCard(FoodItem item) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10), // Smaller, more Shopee-like radius
-        border: Border.all(color: cardBorder.withValues(alpha: 0.8), width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          )
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: () {
-            StoreItemDetails.open(context, item.rawData);
-          },
-          child: AnimatedSwitcher(
-
-            duration: const Duration(milliseconds: 400),
-            transitionBuilder: (Widget child, Animation<double> animation) {
-              return FadeTransition(
-                opacity: animation,
-                child: child,
-              );
-            },
-            child: _buildInnerCardContent(item, key: ValueKey(item.id)),
+  Widget _sectionTitle({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String count,
+    required Color color,
+    required String actionLabel,
+    required VoidCallback onPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 20),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withValues(alpha: 0.16)),
+            ),
+            child: Icon(icon, size: 18, color: color),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInnerCardContent(FoodItem item, {required Key key}) {
-    return Column(
-      key: key,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // --- TOP HALF: HERO IMAGE (Square-ish) ---
-        Expanded(
-          flex: 11,
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
-            child: _buildImage(item.imageSource),
-          ),
-        ),
-
-        // --- BOTTOM HALF: E-COMMERCE DETAILS ---
-        Expanded(
-          flex: 9,
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
+          const SizedBox(width: 10),
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                Row(
                   children: [
-                    Text(
-                      item.name,
-                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: primaryDark, height: 1.2),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: primaryDark,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.1,
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item.merchant,
-                      style: TextStyle(fontSize: 10, color: textSecondary, fontWeight: FontWeight.w500),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    const SizedBox(width: 7),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.09),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        count,
+                        style: TextStyle(
+                          color: color,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                     ),
                   ],
                 ),
-
+                const SizedBox(height: 2),
                 Text(
-                  item.price,
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: themeOrange),
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: textSecondary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
           ),
-        ),
-      ],
+          TextButton.icon(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: color,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              visualDensity: VisualDensity.compact,
+            ),
+            icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+            label: Text(
+              actionLabel,
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildImage(String src) {
-    if (src.isEmpty) {
-      return Container(
-        color: const Color(0xFFF1F5F9),
-        child: Icon(Icons.restaurant_rounded, color: textSecondary.withValues(alpha: 0.3), size: 32),
-      );
-    }
+  Widget _sellerCtaCard() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 350;
+        return Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SellerProfile()),
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFE6F8F9), Color(0xFFDFF7F2)],
+                ),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFCBEFF0)),
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    right: -12,
+                    bottom: -12,
+                    child: Icon(
+                      Icons.water_rounded,
+                      size: narrow ? 76 : 94,
+                      color: const Color(0xFF0E9EA7).withValues(alpha: 0.13),
+                    ),
+                  ),
+                  Positioned(
+                    right: narrow ? 10 : 18,
+                    top: 10,
+                    child: Icon(
+                      Icons.spa_rounded,
+                      size: narrow ? 18 : 22,
+                      color: const Color(0xFF159B87).withValues(alpha: 0.2),
+                    ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      narrow ? 12 : 16,
+                      narrow ? 13 : 16,
+                      narrow ? 12 : 16,
+                      narrow ? 13 : 16,
+                    ),
+                    child: narrow
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                children: [
+                                  _businessIllustration(compact: true),
+                                  const SizedBox(width: 11),
+                                  const Expanded(child: _BusinessCtaText()),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: _businessActionButton(),
+                              ),
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              _businessIllustration(compact: false),
+                              const SizedBox(width: 15),
+                              const Expanded(child: _BusinessCtaText()),
+                              const SizedBox(width: 12),
+                              _businessActionButton(),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 
-    if (src.startsWith('http')) {
+  Widget _businessIllustration({required bool compact}) {
+    final size = compact ? 54.0 : 66.0;
+    return SizedBox(
+      width: size,
+      height: compact ? 52 : 58,
+      child: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          Positioned(
+            left: 0,
+            bottom: 3,
+            child: Icon(
+              Icons.eco_rounded,
+              size: compact ? 22 : 26,
+              color: const Color(0xFF22C55E).withValues(alpha: 0.42),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            bottom: 3,
+            child: Icon(
+              Icons.eco_rounded,
+              size: compact ? 19 : 23,
+              color: const Color(0xFF16A34A).withValues(alpha: 0.34),
+            ),
+          ),
+          Container(
+            width: compact ? 42 : 50,
+            height: compact ? 40 : 46,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0F766E).withValues(alpha: 0.14),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Positioned(
+                  top: 0,
+                  child: Container(
+                    width: compact ? 36 : 44,
+                    height: compact ? 13 : 15,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF14B8A6),
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(7),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: compact ? 7 : 8,
+                  child: Container(
+                    width: compact ? 40 : 48,
+                    height: compact ? 10 : 12,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF67E8F9),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.white, width: 1.5),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 7,
+                  child: Container(
+                    width: compact ? 22 : 26,
+                    height: compact ? 17 : 20,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE0F2FE),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: const Color(0xFF99F6E4)),
+                    ),
+                    child: const Icon(
+                      Icons.storefront_rounded,
+                      color: Color(0xFF0F766E),
+                      size: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _businessActionButton() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0EA5A8), Color(0xFF0891B2)],
+        ),
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0891B2).withValues(alpha: 0.22),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            "Explore Tools",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          SizedBox(width: 6),
+          Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 12),
+        ],
+      ),
+    );
+  }
+
+  Widget _shopCard(Map<String, dynamic> shop) {
+    final name = (shop['seller_store_name'] ?? 'Local Shop').toString();
+    final logo = shop['seller_logo']?.toString() ?? '';
+    final address = shop['seller_store_address'];
+    final location = address is Map
+        ? [address['barangay'], address['municipality']]
+              .where((value) => value != null && value.toString().isNotEmpty)
+              .join(', ')
+        : '';
+
+    return SizedBox(
+      width: 162,
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: cardBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ViewShop(
+                sellerId: shop['seller_id'].toString(),
+                sellerData: shop,
+              ),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _shopImage(logo),
+                    Positioned(
+                      left: 8,
+                      bottom: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.46),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                          ),
+                        ),
+                        child: const Text(
+                          "LOCAL",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.7,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 10, 10, 11),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: primaryDark,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on_rounded,
+                          size: 12,
+                          color: textSecondary,
+                        ),
+                        const SizedBox(width: 3),
+                        Expanded(
+                          child: Text(
+                            location.isEmpty
+                                ? 'Local marketplace seller'
+                                : location,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: textSecondary,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _shopImage(String source) {
+    if (source.startsWith('http')) {
       return Image.network(
-        src,
+        source,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => Container(
-          color: const Color(0xFFF1F5F9),
-          child: Icon(Icons.restaurant_rounded, color: textSecondary.withValues(alpha: 0.3), size: 32),
-        ),
+        cacheWidth: 360,
+        filterQuality: FilterQuality.low,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) => _placeholder(),
       );
     }
+    final bytes = Utility.decodeHexImage(source);
+    return bytes == null
+        ? _placeholder()
+        : Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            cacheWidth: 360,
+            filterQuality: FilterQuality.low,
+            gaplessPlayback: true,
+          );
+  }
 
-    // Try hex decoding
-    final bytes = Utility.decodeHexImage(src);
-    if (bytes != null) {
-      return Image.memory(
-        bytes,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => Container(
-          color: const Color(0xFFF1F5F9),
-          child: Icon(Icons.restaurant_rounded, color: textSecondary.withValues(alpha: 0.3), size: 32),
-        ),
-      );
-    }
-
+  Widget _placeholder() {
     return Container(
       color: const Color(0xFFF1F5F9),
-      child: Icon(Icons.restaurant_rounded, color: textSecondary.withValues(alpha: 0.3), size: 32),
+      alignment: Alignment.center,
+      child: const Icon(Icons.storefront_rounded, color: accent, size: 38),
+    );
+  }
+}
+
+class _BusinessCtaText extends StatelessWidget {
+  const _BusinessCtaText();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          "For Business Owners",
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Color(0xFF0F172A),
+            fontSize: 15.5,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        SizedBox(height: 4),
+        Text(
+          "Grow your business with AGA.\nList your products and reach more customers.",
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: Color(0xFF52627A),
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+            height: 1.3,
+          ),
+        ),
+      ],
     );
   }
 }

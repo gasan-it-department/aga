@@ -48,7 +48,10 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   XFile? _finalCapturedImage;
   StateSetter? _dateAndTimeStateSetter;
 
-  String _selectedStatus = 'Docked';
+  // Flow control
+  String _currentStatus = 'Docked';
+  String _selectedStatus = 'Onboarding';
+  bool _overrideMode = false;
 
   String? _currentPortId;
   String? _originPortId;
@@ -64,19 +67,21 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   Timer? _clockTimer;
 
   SharedPreferences? _preferences;
+  static const List<String> _statusFlow = ['Docked', 'Onboarding', 'Departed', 'Arrived'];
 
   @override
   void initState() {
     super.initState();
 
-    if (widget.currentStatus != null && widget.currentStatus!.isNotEmpty) {
-      String normalizedStatus = widget.currentStatus![0].toUpperCase() + widget.currentStatus!.substring(1).toLowerCase();
-      if (VesselStatus().statusList.contains(normalizedStatus)) {
-        _selectedStatus = normalizedStatus;
-      } else if (VesselStatus().statusList.contains(widget.currentStatus)) {
-        _selectedStatus = widget.currentStatus!;
-      }
+    _currentStatus = widget.currentStatus ?? 'Docked';
+    
+    // Normalize status casing
+    if (_currentStatus.isNotEmpty) {
+      _currentStatus = _currentStatus[0].toUpperCase() + _currentStatus.substring(1).toLowerCase();
     }
+
+    // Determine the next step in the flow automatically
+    _determineNextStatus();
 
     if (widget.onboardingDuration != null && widget.onboardingDuration! > 0) {
       _onboardingDurationController.text = widget.onboardingDuration.toString();
@@ -84,7 +89,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
 
     _initPrefs();
 
-    WidgetsBinding.instance.addPostFrameCallback((_){
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchPorts();
       _clockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
         if (mounted) {
@@ -94,6 +99,19 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         }
       });
     });
+  }
+
+  void _determineNextStatus() {
+    final currentStepIndex = _flowIndexForStatus(_currentStatus);
+    final nextStepIndex = (currentStepIndex + 1) % _statusFlow.length;
+    _selectedStatus = _statusFlow[nextStepIndex];
+  }
+
+  int _flowIndexForStatus(String status) {
+    final statusLower = status.toLowerCase().trim();
+    if (statusLower == 'docked') return 0;
+    final index = _statusFlow.indexWhere((step) => step.toLowerCase() == statusLower);
+    return index < 0 ? 0 : index;
   }
 
   Future<void> _initPrefs() async {
@@ -110,12 +128,18 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
 
           final List<String> allPortIds = _availablePorts.map((p) => p['port_id'].toString()).toList();
 
+          // Set up defaults based on current status and parameters
           if (widget.originId != null && allPortIds.contains(widget.originId)) {
             _originPortId = widget.originId;
             _currentPortId = widget.originId;
           }
           if (widget.destinationId != null && allPortIds.contains(widget.destinationId)) {
             _destinationPortId = widget.destinationId;
+          }
+
+          // If transitioning from Departed to Docked, destinationPortId becomes the new docked location
+          if (_currentStatus.toLowerCase() == 'departed' && _destinationPortId != null) {
+            _currentPortId = _destinationPortId;
           }
         });
       }
@@ -161,7 +185,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     if (mounted) {
       _classicDialog.showOnButtonDialog(context, () {
         _classicDialog.dismissDialog();
-        if(mounted) if (onClose != null) onClose();
+        if (mounted) if (onClose != null) onClose();
       });
     }
   }
@@ -248,7 +272,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
       int arrivalEpoch = 0;
 
       if (statusLower == 'departed') departedEpoch = nowEpoch;
-      if (statusLower == 'arrived') arrivalEpoch = nowEpoch;
+      if (statusLower == 'docked' || statusLower == 'arrived') arrivalEpoch = nowEpoch;
 
       int onboardingDurationMins = 0;
       if (isOnboarding) {
@@ -257,6 +281,12 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
 
       String? trueOrigin = isRouteStatus ? _originPortId : _currentPortId;
       String? trueDestination = (isRouteStatus || isStandby) ? _destinationPortId : null;
+
+      // When arrived, destination becomes the new starting origin, and destination is reset to null
+      if (statusLower == 'arrived' || statusLower == 'docked') {
+        trueOrigin = _destinationPortId ?? _originPortId ?? _currentPortId;
+        trueDestination = null;
+      }
 
       Map<String, dynamic> statusUpdateJson = {
         "origin": trueOrigin,
@@ -269,9 +299,17 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         "image_proof": newImageUrl
       };
 
-      await supabase.from('vessels').update({
+      // Construct update query
+      Map<String, dynamic> updatePayload = {
         'vessel_status': statusUpdateJson,
-      }).eq('vessel_id', widget.vesselId);
+      };
+
+      // Set vessel_current_port column on the database table to synchronize filter queries
+      if (trueOrigin != null) {
+        updatePayload['vessel_current_port'] = trueOrigin;
+      }
+
+      await supabase.from('vessels').update(updatePayload).eq('vessel_id', widget.vesselId);
 
       String userName = _preferences?.getString("user_name") ?? "An Admin";
       String assignedPort = _preferences?.getString("assigned_port") ?? "Unknown Port";
@@ -325,27 +363,74 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Vessel Header Card
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     decoration: BoxDecoration(
-                      color: primaryDark.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: primaryDark.withValues(alpha: 0.1)),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: outlineColor),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.02),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(Icons.directions_boat_rounded, color: primaryDark, size: 20),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            widget.vesselName,
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: primaryDark),
-                          ),
+                        Row(
+                          children: [
+                            Icon(Icons.directions_boat_rounded, color: primaryDark, size: 22),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                widget.vesselName,
+                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: primaryDark),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+                        ),
+                        Row(
+                          children: [
+                            const Text(
+                              "Current Status: ",
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF64748B)),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: _getStatusColor(_currentStatus).withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                _currentStatus.toUpperCase(),
+                                style: TextStyle(
+                                  color: _getStatusColor(_currentStatus),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
+
+                  // Flow Stepper Header
+                  if (!_overrideMode) ...[
+                    _buildFlowStepper(),
+                    const SizedBox(height: 20),
+                  ],
 
                   const Text("LIVE PROOF (PHOTO)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 1.2)),
                   const SizedBox(height: 12),
@@ -405,7 +490,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                   ),
                   const SizedBox(height: 24),
 
-                  StatefulBuilder(builder: (context, stateSetter){
+                  StatefulBuilder(builder: (context, stateSetter) {
                     _dateAndTimeStateSetter = stateSetter;
                     return Row(
                       children: [
@@ -463,46 +548,55 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                   }),
                   const SizedBox(height: 24),
 
-                  const Text("VESSEL STATUS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 1.2)),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: outlineColor),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        isExpanded: true,
-                        value: _selectedStatus,
-                        icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFF0A2E5C)),
-                        items: VesselStatus().statusList.map((String status) {
-                          return DropdownMenuItem<String>(
-                            value: status,
-                            child: Text(
-                              status.toUpperCase(),
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: primaryDark),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: _isUploading ? null : (String? newValue) {
-                          if (newValue != null) {
-                            setState(() {
-                              _selectedStatus = newValue;
-                              if (newValue.toLowerCase() != 'onboarding') {
-                                _onboardingDurationController.clear();
-                              }
-                            });
-                          }
-                        },
+                  if (_overrideMode) ...[
+                    const Text("OVERRIDE VESSEL STATUS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFFEF4444), letterSpacing: 1.2)),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFFCA5A5)),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          isExpanded: true,
+                          value: _selectedStatus,
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Color(0xFFEF4444)),
+                          items: VesselStatus().statusList.map((String status) {
+                            return DropdownMenuItem<String>(
+                              value: status,
+                              child: Text(
+                                status.toUpperCase(),
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF7F1D1D)),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: _isUploading ? null : (String? newValue) {
+                            if (newValue != null) {
+                              setState(() {
+                                _selectedStatus = newValue;
+                                if (newValue.toLowerCase() != 'onboarding') {
+                                  _onboardingDurationController.clear();
+                                }
+                              });
+                            }
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
+                    const SizedBox(height: 24),
+                  ] else ...[
+                    // Show next step action label
+                    Text(
+                      "UPDATING STATUS TO: ${_selectedStatus.toUpperCase()}",
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: accentBlue, letterSpacing: 1.2),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
                   if (isOnboarding) ...[
-                    const Text("ESTIMATED DURATION (MINUTES)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 1.2)),
+                    const Text("ESTIMATED ONBOARDING DURATION (MINUTES)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 1.2)),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _onboardingDurationController,
@@ -527,12 +621,25 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                   if (isRouteStatus) ...[
                     const Text("ROUTE INFORMATION", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 1.2)),
                     const SizedBox(height: 12),
-                    _buildPortDropdown("Origin", _originPortId, (val) => setState(() => _originPortId = val)),
+                    // If transitioning to Departed or Docked from an existing route, origin port can be locked
+                    _buildPortDropdown(
+                      "Origin",
+                      _originPortId,
+                      (_currentStatus.toLowerCase() == 'onboarding' || _currentStatus.toLowerCase() == 'departed') && !_overrideMode
+                          ? null
+                          : (val) => setState(() => _originPortId = val),
+                    ),
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 8),
                       child: Icon(Icons.arrow_downward_rounded, color: Color(0xFFCBD5E1), size: 20),
                     ),
-                    _buildPortDropdown("Destination", _destinationPortId, (val) => setState(() => _destinationPortId = val)),
+                    _buildPortDropdown(
+                      "Destination",
+                      _destinationPortId,
+                      _currentStatus.toLowerCase() == 'departed' && !_overrideMode
+                          ? null
+                          : (val) => setState(() => _destinationPortId = val),
+                    ),
                   ] else if (isStandby) ...[
                     const Text("STANDBY INFORMATION", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Color(0xFF64748B), letterSpacing: 1.2)),
                     const SizedBox(height: 12),
@@ -556,10 +663,10 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                         child: Builder(
                           builder: (context) {
                             String summaryText = "";
-                            if (statusLower == 'arrived') {
+                            if (statusLower == 'arrived' || statusLower == 'docked') {
                               summaryText = "Arrived at ${_getPortName(_destinationPortId).toUpperCase()} from ${_getPortName(_originPortId).toUpperCase()}";
                             } else if (statusLower == 'departed') {
-                              summaryText = "Departed from ${_getPortName(_originPortId).toUpperCase()} to ${_getPortName(_destinationPortId).toUpperCase()}";
+                              summaryText = "Departing from ${_getPortName(_originPortId).toUpperCase()} to ${_getPortName(_destinationPortId).toUpperCase()}";
                             } else if (statusLower == 'onboarding') {
                               summaryText = "Onboarding at ${_getPortName(_originPortId).toUpperCase()} bound for ${_getPortName(_destinationPortId).toUpperCase()}";
                             }
@@ -572,21 +679,11 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                         )
                     ),
 
-                  if (isStandby && _currentPortId != null && _destinationPortId != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
-                      child: Text(
-                        "On Standby at ${_getPortName(_currentPortId).toUpperCase()} waiting to depart for ${_getPortName(_destinationPortId).toUpperCase()}",
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.orange),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-
                   SizedBox(
                     height: 56,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: accentBlue,
+                        backgroundColor: _overrideMode ? const Color(0xFFEF4444) : accentBlue,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         elevation: 0,
@@ -594,7 +691,30 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                       onPressed: _isUploading ? null : _submitStatusUpdate,
                       child: _isUploading
                           ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                          : const Text("Update Vessel Status", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                          : Text(_overrideMode ? "Force Override Status" : "Set as $_selectedStatus", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Reset/Override option
+                  Center(
+                    child: TextButton.icon(
+                      icon: Icon(_overrideMode ? Icons.check_circle_outline_rounded : Icons.warning_amber_rounded, size: 16),
+                      label: Text(_overrideMode ? "Back to Flow Sequence" : "Manual Override / Reset Status"),
+                      style: TextButton.styleFrom(
+                        foregroundColor: _overrideMode ? accentBlue : const Color(0xFFEF4444),
+                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _overrideMode = !_overrideMode;
+                          if (_overrideMode) {
+                            _selectedStatus = _currentStatus;
+                          } else {
+                            _determineNextStatus();
+                          }
+                        });
+                      },
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -606,11 +726,203 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     );
   }
 
-  Widget _buildPortDropdown(String hint, String? currentValue, ValueChanged<String?> onChanged) {
+  Widget _buildFlowStepper() {
+    final steps = _statusFlow;
+    final currentStepIndex = _flowIndexForStatus(_currentStatus);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: outlineColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "FLOW PROGRESSION",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF64748B),
+                  letterSpacing: 1.2,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  "STEP ${currentStepIndex + 1} OF ${steps.length}",
+                  style: const TextStyle(
+                    color: Color(0xFF1E40AF),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          ...List.generate(steps.length, (index) {
+            final isPassed = index < currentStepIndex;
+            final isCurrent = index == currentStepIndex;
+            final isNext = index == currentStepIndex + 1;
+            final isLast = index == steps.length - 1;
+
+            Color stepColor = const Color(0xFFCBD5E1);
+            String desc = "";
+            if (index == 0) {
+              desc = "Vessel is docked. Ready for cargo, vehicle and passenger loading.";
+            } else if (index == 1) {
+              desc = "Passengers onboarding. Recording duration and boarding metrics.";
+            } else if (index == 2) {
+              desc = "Vessel has left the port. En route to destination.";
+            } else if (index == 3) {
+              desc = "Vessel has reached its destination and completed the route.";
+            }
+
+            if (isCurrent) {
+              stepColor = accentBlue;
+            } else if (isPassed) {
+              stepColor = const Color(0xFF10B981);
+            } else if (isNext) {
+              stepColor = const Color(0xFF64748B);
+            }
+
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Timeline column
+                  Column(
+                    children: [
+                      // Bubble
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: isCurrent ? stepColor : (isPassed ? const Color(0xFFE8F5E9) : Colors.white),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: stepColor,
+                            width: isCurrent ? 3 : 2,
+                          ),
+                          boxShadow: isCurrent
+                              ? [
+                                  BoxShadow(
+                                    color: stepColor.withValues(alpha: 0.3),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
+                                  )
+                                ]
+                              : null,
+                        ),
+                        child: Center(
+                          child: isPassed
+                              ? const Icon(Icons.check_rounded, size: 14, color: Color(0xFF10B981))
+                              : Text(
+                                  (index + 1).toString(),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                    color: isCurrent ? Colors.white : stepColor,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      // Connector line
+                      if (!isLast)
+                        Expanded(
+                          child: Container(
+                            width: 2.5,
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            color: isPassed ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(width: 14),
+                  // Content column
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              steps[index],
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: isCurrent ? FontWeight.w900 : FontWeight.bold,
+                                color: isCurrent ? primaryDark : (isPassed ? const Color(0xFF1E293B) : const Color(0xFF94A3B8)),
+                              ),
+                            ),
+                            if (isCurrent) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: accentBlue.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: accentBlue.withValues(alpha: 0.2)),
+                                ),
+                                child: Text(
+                                  "ACTIVE",
+                                  style: TextStyle(
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w900,
+                                    color: accentBlue,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          desc,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            height: 1.35,
+                            fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w500,
+                            color: isCurrent ? const Color(0xFF334155) : const Color(0xFF64748B),
+                          ),
+                        ),
+                        if (!isLast) const SizedBox(height: 20),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPortDropdown(String hint, String? currentValue, ValueChanged<String?>? onChanged) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: onChanged == null ? const Color(0xFFF1F5F9) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: outlineColor),
       ),
@@ -623,8 +935,12 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         child: DropdownButton<String>(
           isExpanded: true,
           value: currentValue,
+          disabledHint: Text(
+            currentValue != null ? _getPortName(currentValue) : hint,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: primaryDark.withValues(alpha: 0.6)),
+          ),
           hint: Text(hint, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey)),
-          icon: const Icon(Icons.location_on_rounded, color: Color(0xFF0A2E5C), size: 18),
+          icon: Icon(Icons.location_on_rounded, color: onChanged == null ? const Color(0xFF94A3B8) : const Color(0xFF0A2E5C), size: 18),
           items: _availablePorts.map((port) {
             return DropdownMenuItem<String>(
               value: port['port_id'].toString(),
@@ -639,5 +955,21 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         ),
       ),
     );
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'docked':
+      case 'arrived':
+        return Colors.teal;
+      case 'departed':
+        return Colors.blue;
+      case 'onboarding':
+        return Colors.orange;
+      case 'maintenance':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 }

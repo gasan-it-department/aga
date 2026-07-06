@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:gasan_port_tracker/Activities/MDRRMO/Maps/MDRRMOLiveMap.dart';
+import 'package:gasan_port_tracker/Activities/MDRRMO/Maps/PHIVOLCSEarthquakeInfo.dart';
+import 'package:gasan_port_tracker/Activities/MDRRMO/Maps/PHIVOLCSHazardMap.dart';
+import 'package:gasan_port_tracker/Activities/MDRRMO/Maps/WindMonitoringMap.dart';
 import 'package:gasan_port_tracker/Activities/MDRRMO/MDRRMOPersonnelList.dart';
 import 'package:gasan_port_tracker/Dialogs/ClassicDialog.dart';
 import 'package:gasan_port_tracker/Dialogs/LoadingDialog.dart';
@@ -238,6 +241,10 @@ class _MdrrmoAdministratorState extends State<MdrrmoAdministrator> {
                 _buildSidebarItem(Icons.fire_truck_rounded, "Unit Dispatch", false, () => Navigator.push(context, MaterialPageRoute(builder: (_) => UnitDispatch(municipalZipCode: _municipalityZipCode)))),
                 _buildSidebarItem(Icons.groups_rounded, "Personnel", false, () => Navigator.push(context, MaterialPageRoute(builder: (_) => MdrrmoPersonnelList(mdrrmoMunicipality: _municipalityZipCode)))),
                 _buildSidebarItem(Icons.report_problem_rounded, "Incident Reports", false, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const IncidentReports()))),
+                _buildSidebarSectionLabel("TESTING"),
+                _buildSidebarItem(Icons.layers_rounded, "PHIVOLCS Hazard Map", false, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PHIVOLCSHazardMap())), badge: "TESTING"),
+                _buildSidebarItem(Icons.air_rounded, "Wind Monitoring", false, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WindMonitoringMap())), badge: "TESTING"),
+                _buildSidebarItem(Icons.crisis_alert_rounded, "Earthquake Info", false, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PHIVOLCSEarthquakeInfo())), badge: "TESTING"),
               ],
             ),
           ),
@@ -261,7 +268,14 @@ class _MdrrmoAdministratorState extends State<MdrrmoAdministrator> {
     );
   }
 
-  Widget _buildSidebarItem(IconData icon, String title, bool isActive, VoidCallback onTap) {
+  Widget _buildSidebarSectionLabel(String title) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(32, 18, 16, 8),
+      child: Text(title, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: emergencyRed, letterSpacing: 1.2)),
+    );
+  }
+
+  Widget _buildSidebarItem(IconData icon, String title, bool isActive, VoidCallback onTap, {String? badge}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: InkWell(
@@ -274,7 +288,8 @@ class _MdrrmoAdministratorState extends State<MdrrmoAdministrator> {
             children: [
               Icon(icon, color: isActive ? emergencyRed : textSecondary, size: 20),
               const SizedBox(width: 16),
-              Text(title, style: TextStyle(fontWeight: isActive ? FontWeight.w700 : FontWeight.w500, color: isActive ? emergencyRed : textPrimary)),
+              Expanded(child: Text(title, style: TextStyle(fontWeight: isActive ? FontWeight.w700 : FontWeight.w500, color: isActive ? emergencyRed : textPrimary))),
+              if (badge != null) Container(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4), decoration: BoxDecoration(color: emergencyRed, borderRadius: BorderRadius.circular(999)), child: Text(badge, style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 0.5))),
             ],
           ),
         ),
@@ -374,6 +389,25 @@ class _MdrrmoAdministratorState extends State<MdrrmoAdministrator> {
                 ),
                 const SizedBox(height: 32),
               ],
+
+              _buildSectionTitle(Icons.science_rounded, "TESTING TOOLS", emergencyRed),
+              const SizedBox(height: 6),
+              Text("These features are being carefully tested and are not yet available for true operational output.", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: textSecondary, height: 1.4)),
+              const SizedBox(height: 16),
+              GridView.count(
+                crossAxisCount: isDesktop ? 4 : crossAxisCount,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                childAspectRatio: isDesktop ? 1.2 : 0.85,
+                children: [
+                  _buildGridCard(title: "PHIVOLCS Hazard Map", subtitle: "View active fault and liquefaction overlays.", icon: Icons.layers_rounded, iconColor: const Color(0xFFDC2626), isActive: true, badge: "TESTING", onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PHIVOLCSHazardMap()))),
+                  _buildGridCard(title: "Wind Monitoring", subtitle: "View free Windy wind conditions.", icon: Icons.air_rounded, iconColor: const Color(0xFF0EA5E9), isActive: true, badge: "TESTING", onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const WindMonitoringMap()))),
+                  _buildGridCard(title: "Earthquake Info", subtitle: "View the official PHIVOLCS earthquake information page.", icon: Icons.crisis_alert_rounded, iconColor: const Color(0xFFB91C1C), isActive: true, badge: "TESTING", onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const PHIVOLCSEarthquakeInfo()))),
+                ],
+              ),
+              const SizedBox(height: 32),
 
               _buildSectionTitle(Icons.hourglass_empty_rounded, "UPCOMING MODULES", textSecondary),
               const SizedBox(height: 16),
@@ -700,7 +734,7 @@ class _MdrrmoAdministratorState extends State<MdrrmoAdministrator> {
     return Row(children: [Icon(icon, size: 16, color: color), const SizedBox(width: 8), Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textSecondary, letterSpacing: 1.0))]);
   }
 
-  Widget _buildGridCard({required String title, required String subtitle, required IconData icon, required Color iconColor, required bool isActive, required VoidCallback? onTap}) {
+  Widget _buildGridCard({required String title, required String subtitle, required IconData icon, required Color iconColor, required bool isActive, required VoidCallback? onTap, String? badge}) {
     return Container(
       decoration: BoxDecoration(color: isActive ? surfaceColor : lockedBgColor, borderRadius: BorderRadius.circular(20), border: Border.all(color: isActive ? borderColor : borderColor.withValues(alpha: 0.5)), boxShadow: isActive ? [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))] : []),
       child: Material(
@@ -713,7 +747,8 @@ class _MdrrmoAdministratorState extends State<MdrrmoAdministrator> {
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: isActive ? iconColor.withValues(alpha: 0.1) : Colors.white, shape: BoxShape.circle, border: Border.all(color: isActive ? Colors.transparent : borderColor)), child: Icon(icon, color: isActive ? iconColor : textSecondary.withValues(alpha: 0.5), size: 28)),
-                if (!isActive) Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, border: Border.all(color: borderColor)), child: Icon(Icons.lock_outline_rounded, size: 14, color: textSecondary.withValues(alpha: 0.4))),
+                if (badge != null) Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5), decoration: BoxDecoration(color: emergencyRed, borderRadius: BorderRadius.circular(999)), child: Text(badge, style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.6))),
+                if (badge == null && !isActive) Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, border: Border.all(color: borderColor)), child: Icon(Icons.lock_outline_rounded, size: 14, color: textSecondary.withValues(alpha: 0.4))),
               ]),
               const Spacer(),
               Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: isActive ? textPrimary : textSecondary, height: 1.2, letterSpacing: -0.3)),

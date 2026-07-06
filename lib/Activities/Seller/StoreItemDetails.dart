@@ -33,8 +33,10 @@ class StoreItemDetails extends StatefulWidget {
   static void open(BuildContext context, Map<String, dynamic> item) {
     final id = item['item_id']?.toString() ?? '';
     if (id.isNotEmpty && openItems.contains(id)) {
-      Navigator.of(context).popUntil((route) =>
-          route.settings.name == 'StoreItemDetails:$id' || route.isFirst);
+      Navigator.of(context).popUntil(
+        (route) =>
+            route.settings.name == 'StoreItemDetails:$id' || route.isFirst,
+      );
       return;
     }
     Navigator.push(
@@ -101,7 +103,10 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
       final uid = _supabase.auth.currentUser?.id;
       if (uid == null) return;
       final itemId = widget.item['item_id']?.toString();
-      final data = await _supabase.from('cart').select('cart_id, cart_item_id').eq('cart_user_id', uid);
+      final data = await _supabase
+          .from('cart')
+          .select('cart_id, cart_item_id')
+          .eq('cart_user_id', uid);
       final list = List<Map<String, dynamic>>.from(data);
       String? existingId;
       for (final row in list) {
@@ -199,14 +204,21 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
         children: [
           IconButton(
             onPressed: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => const MyCart()));
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MyCart()),
+              );
               _fetchCartCount();
             },
             icon: dark
                 ? Icon(Icons.shopping_cart_rounded, color: iconColor, size: 22)
                 : CircleAvatar(
                     backgroundColor: Colors.black.withValues(alpha: 0.3),
-                    child: const Icon(Icons.shopping_cart_rounded, color: Colors.white, size: 20),
+                    child: const Icon(
+                      Icons.shopping_cart_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
           ),
           if (_cartCount > 0)
@@ -224,7 +236,11 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
                 child: Text(
                   _cartCount > 99 ? '99+' : '$_cartCount',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
             ),
@@ -235,9 +251,11 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
 
   Future<void> _fetchDeliveryRates() async {
     try {
-      final String? sellerId = widget.item['item_seller_id']?.toString() ?? widget.item['seller_id']?.toString();
+      final String? sellerId =
+          widget.item['item_seller_id']?.toString() ??
+          widget.item['seller_id']?.toString();
       if (sellerId == null || sellerId.isEmpty) return;
-      
+
       final res = await _supabase
           .from('sellers')
           .select('seller_delivery_rates')
@@ -246,7 +264,10 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
 
       final raw = res?['seller_delivery_rates'];
       final List<Map<String, dynamic>> parsed = raw is List
-          ? raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+          ? raw
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList()
           : <Map<String, dynamic>>[];
       parsed.sort((a, b) {
         final av = (a['rate_amount'] as num?)?.toDouble() ?? 0;
@@ -291,8 +312,12 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
         map = jsonDecode(prefs);
       }
       final ff = map['fulfillment'];
-      final hasDelivery = ff is List ? ff.map((e) => e.toString()).contains("Delivery") : true;
-      final hasPickup = ff is List ? ff.map((e) => e.toString()).contains("In-Store Pickup") : false;
+      final hasDelivery = ff is List
+          ? ff.map((e) => e.toString()).contains("Delivery")
+          : true;
+      final hasPickup = ff is List
+          ? ff.map((e) => e.toString()).contains("In-Store Pickup")
+          : false;
       if (mounted) {
         setState(() {
           _isPaymentFirst = map['is_payment_first'] == true;
@@ -304,9 +329,15 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
 
   Future<void> _fetchSellerPrefs() async {
     try {
-      final String? sellerId = widget.item['item_seller_id']?.toString() ?? widget.item['seller_id']?.toString();
+      final String? sellerId =
+          widget.item['item_seller_id']?.toString() ??
+          widget.item['seller_id']?.toString();
       if (sellerId == null || sellerId.isEmpty) return;
-      final row = await _supabase.from('sellers').select('seller_preferences, seller_payment_method').eq('seller_id', sellerId).maybeSingle();
+      final row = await _supabase
+          .from('sellers')
+          .select('seller_preferences, seller_payment_method')
+          .eq('seller_id', sellerId)
+          .maybeSingle();
       if (row != null) {
         _readPrefs(row['seller_preferences']);
         _readPaymentMethods(row['seller_payment_method']);
@@ -322,8 +353,11 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
 
       final data = await _supabase
           .from('store_items')
-          .select('*, sellers(seller_store_name, seller_logo)')
+          .select(
+            '*, sellers!inner(seller_store_name, seller_logo, seller_store_status)',
+          )
           .eq('item_available', true)
+          .eq('sellers.seller_store_status', 'visible')
           .neq('item_id', currentId)
           .limit(60);
 
@@ -339,31 +373,78 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
     }
   }
 
+  List<Map<String, dynamic>> _sellableVariationsFor(Map<String, dynamic> item) {
+    final vars = item['item_variations'];
+    final parsed = vars is List
+        ? vars.whereType<Map>().map((v) => Map<String, dynamic>.from(v))
+        : ItemVariations.parse(vars);
+    return parsed.where((variation) {
+      final stock = num.tryParse(variation['stock']?.toString() ?? '0') ?? 0;
+      final price = num.tryParse(variation['price']?.toString() ?? '');
+      return (stock < 0 || stock > 0) && price != null;
+    }).toList();
+  }
+
+  num _displayPriceFor(Map<String, dynamic> item) {
+    final variations = _sellableVariationsFor(item);
+    if (variations.isNotEmpty) {
+      variations.sort((a, b) {
+        final aPrice = num.tryParse(a['price']?.toString() ?? '0') ?? 0;
+        final bPrice = num.tryParse(b['price']?.toString() ?? '0') ?? 0;
+        return aPrice.compareTo(bPrice);
+      });
+      return num.tryParse(variations.first['price']?.toString() ?? '0') ?? 0;
+    }
+    final rawPrice = item['item_price'];
+    return rawPrice is num
+        ? rawPrice
+        : (num.tryParse(rawPrice?.toString() ?? '0') ?? 0);
+  }
+
   Future<void> _openChat() async {
-    final String? sellerId = widget.item['item_seller_id']?.toString() ?? widget.item['seller_id']?.toString();
+    final String? sellerId =
+        widget.item['item_seller_id']?.toString() ??
+        widget.item['seller_id']?.toString();
     if (sellerId == null || sellerId.isEmpty) return;
     final chat = ChatService();
     if (chat.currentUserId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please sign in to chat.")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Please sign in to chat.")));
       return;
     }
     if (chat.currentUserId == sellerId) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("This is your own store.")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("This is your own store.")));
       return;
     }
     final sellersRaw = widget.item['sellers'];
-    final String title = (sellersRaw is Map && sellersRaw['seller_store_name'] != null)
+    final String title =
+        (sellersRaw is Map && sellersRaw['seller_store_name'] != null)
         ? sellersRaw['seller_store_name'].toString()
         : 'Store';
     try {
-      final convo = await chat.getOrCreateConversation(sellerId: sellerId, itemId: widget.item['item_id']?.toString());
-      if (convo == null || !mounted) return;
+      final itemId = widget.item['item_id']?.toString();
+      final convo = await chat.findConversation(sellerId: sellerId);
+      if (!mounted) return;
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => ChatThread(conversationId: convo['conversation_id'].toString(), title: title)),
+        MaterialPageRoute(
+          builder: (_) => ChatThread(
+            conversationId: convo?['conversation_id']?.toString(),
+            sellerId: sellerId,
+            itemId: itemId,
+            title: title,
+          ),
+        ),
       );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Couldn't open chat: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Couldn't open chat: $e")));
+      }
     }
   }
 
@@ -374,12 +455,19 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
         ? rawImgs.map((e) => e.toString()).toList()
         : (rawImgs is String && rawImgs.isNotEmpty ? [rawImgs] : <String>[]);
     final String name = (widget.item['item_name'] ?? 'Unnamed Item').toString();
-    final num price = (widget.item['item_price'] is num) ? widget.item['item_price'] as num : num.tryParse(widget.item['item_price']?.toString() ?? '0') ?? 0;
-    final String description = (widget.item['item_description'] ?? 'No description available.').toString();
+    final num price = (widget.item['item_price'] is num)
+        ? widget.item['item_price'] as num
+        : num.tryParse(widget.item['item_price']?.toString() ?? '0') ?? 0;
+    final String description =
+        (widget.item['item_description'] ?? 'No description available.')
+            .toString();
     final bool isAvailable = widget.item['item_available'] == true;
     final dynamic sellersRaw = widget.item['sellers'];
-    final Map<String, dynamic> sellerMap = sellersRaw is Map<String, dynamic> ? sellersRaw : <String, dynamic>{};
-    final String merchant = (sellerMap['seller_store_name'] ?? 'Local Merchant').toString();
+    final Map<String, dynamic> sellerMap = sellersRaw is Map<String, dynamic>
+        ? sellersRaw
+        : <String, dynamic>{};
+    final String merchant = (sellerMap['seller_store_name'] ?? 'Local Merchant')
+        .toString();
     final String? merchantLogo = sellerMap['seller_logo']?.toString();
 
     final bool isDesktop = Responsive.isDesktop(context);
@@ -390,22 +478,57 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
       backgroundColor: bgColor,
       appBar: isWide
           ? AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: primaryDark,
-        elevation: 0,
-        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-        actions: [_buildCartAction(iconColor: primaryDark, dark: true)],
-        bottom: PreferredSize(preferredSize: const Size.fromHeight(1), child: Container(color: cardBorder, height: 1)),
-      )
+              backgroundColor: Colors.white,
+              foregroundColor: primaryDark,
+              elevation: 0,
+              title: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+              actions: [_buildCartAction(iconColor: primaryDark, dark: true)],
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(1),
+                child: Container(color: cardBorder, height: 1),
+              ),
+            )
           : null,
       body: isWide
-          ? _buildWideLayout(images, name, price, description, isAvailable, merchant, merchantLogo)
-          : _buildMobileLayout(images, name, price, description, isAvailable, merchant, merchantLogo),
+          ? _buildWideLayout(
+              images,
+              name,
+              price,
+              description,
+              isAvailable,
+              merchant,
+              merchantLogo,
+            )
+          : _buildMobileLayout(
+              images,
+              name,
+              price,
+              description,
+              isAvailable,
+              merchant,
+              merchantLogo,
+            ),
       bottomNavigationBar: _buildStickyBottomBar(),
     );
   }
 
-  Widget _buildMobileLayout(List<String> images, String name, num price, String description, bool isAvailable, String merchant, String? merchantLogo) {
+  Widget _buildMobileLayout(
+    List<String> images,
+    String name,
+    num price,
+    String description,
+    bool isAvailable,
+    String merchant,
+    String? merchantLogo,
+  ) {
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
       slivers: [
@@ -418,23 +541,57 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
           leading: IconButton(
             icon: CircleAvatar(
               backgroundColor: Colors.black.withValues(alpha: 0.3),
-              child: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 20),
+              child: const Icon(
+                Icons.arrow_back_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
             onPressed: () => Navigator.pop(context),
           ),
           actions: [_buildCartAction()],
-          flexibleSpace: FlexibleSpaceBar(background: _buildImageCarousel(images)),
+          flexibleSpace: FlexibleSpaceBar(
+            background: _buildImageCarousel(images),
+          ),
         ),
         SliverToBoxAdapter(child: _buildMainInfo(name, price, isAvailable)),
         if (_variations.isNotEmpty)
-          SliverToBoxAdapter(child: Container(margin: const EdgeInsets.only(top: 8), child: _buildVariationSelector())),
-        SliverToBoxAdapter(child: Container(margin: const EdgeInsets.only(top: 8), child: _buildShippingRow())),
-        SliverToBoxAdapter(child: Container(margin: const EdgeInsets.only(top: 8), child: _buildMerchantCard(merchant, merchantLogo))),
-        SliverToBoxAdapter(child: Container(margin: const EdgeInsets.only(top: 8), child: _buildDescriptionCard(description))),
+          SliverToBoxAdapter(
+            child: Container(
+              margin: const EdgeInsets.only(top: 8),
+              child: _buildVariationSelector(),
+            ),
+          ),
+        SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.only(top: 8),
+            child: _buildShippingRow(),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.only(top: 8),
+            child: _buildMerchantCard(merchant, merchantLogo),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.only(top: 8),
+            child: _buildDescriptionCard(description),
+          ),
+        ),
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
-            child: Text("YOU MAY ALSO LIKE", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textSecondary, letterSpacing: 1.5)),
+            child: Text(
+              "YOU MAY ALSO LIKE",
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: textSecondary,
+                letterSpacing: 1.5,
+              ),
+            ),
           ),
         ),
         SliverToBoxAdapter(child: _buildRecommendationsList()),
@@ -443,7 +600,15 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
     );
   }
 
-  Widget _buildWideLayout(List<String> images, String name, num price, String description, bool isAvailable, String merchant, String? merchantLogo) {
+  Widget _buildWideLayout(
+    List<String> images,
+    String name,
+    num price,
+    String description,
+    bool isAvailable,
+    String merchant,
+    String? merchantLogo,
+  ) {
     final bool isDesktop = Responsive.isDesktop(context);
     final double imgHeight = isDesktop ? 520 : 440;
     final double maxW = isDesktop ? 1280 : 1024;
@@ -454,7 +619,12 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
         constraints: BoxConstraints(maxWidth: maxW),
         child: ListView(
           physics: const BouncingScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(isDesktop ? 32 : 20, 24, isDesktop ? 32 : 20, 120),
+          padding: EdgeInsets.fromLTRB(
+            isDesktop ? 32 : 20,
+            24,
+            isDesktop ? 32 : 20,
+            120,
+          ),
           children: [
             SizedBox(
               height: imgHeight,
@@ -515,7 +685,15 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 28, 4, 12),
-              child: Text("YOU MAY ALSO LIKE", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textSecondary, letterSpacing: 1.5)),
+              child: Text(
+                "YOU MAY ALSO LIKE",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: textSecondary,
+                  letterSpacing: 1.5,
+                ),
+              ),
             ),
             _buildRecommendationsList(),
           ],
@@ -527,7 +705,11 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
   Widget _buildMainInfo(String name, num price, bool isAvailable) {
     final String priceText = _selectedVariation != null
         ? "₱${Utility().formatPrice(_selectedVariation!['price'] as num? ?? price)}"
-        : ItemVariations.priceLabel(widget.item['item_variations'], price, (v) => Utility().formatPrice(v));
+        : ItemVariations.priceLabel(
+            widget.item['item_variations'],
+            price,
+            (v) => Utility().formatPrice(v),
+          );
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.all(16),
@@ -538,20 +720,40 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(priceText, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: themeOrange)),
+                child: Text(
+                  priceText,
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w900,
+                    color: themeOrange,
+                  ),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 10),
-          Text(name, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: primaryDark, height: 1.4)),
+          Text(
+            name,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: primaryDark,
+              height: 1.4,
+            ),
+          ),
           const SizedBox(height: 16),
-          Text(isAvailable ? "Available" : "Not Available", style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: isAvailable ? Colors.green : Colors.red)),
+          Text(
+            isAvailable ? "Available" : "Not Available",
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: isAvailable ? Colors.green : Colors.red,
+            ),
+          ),
         ],
       ),
     );
   }
-
-
 
   Widget _buildVariationSelector() {
     return Container(
@@ -562,13 +764,25 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
         children: [
           Row(
             children: [
-              Text("VARIATION", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textSecondary, letterSpacing: 1.2)),
+              Text(
+                "VARIATION",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: textSecondary,
+                  letterSpacing: 1.2,
+                ),
+              ),
               const SizedBox(width: 8),
               if (_selectedVariation != null)
                 Expanded(
                   child: Text(
                     _selectedVariation!['label'].toString(),
-                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: primaryDark),
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: primaryDark,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -580,15 +794,25 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
             spacing: 8,
             runSpacing: 8,
             children: _variations.map((v) {
-              final selected = _selectedVariation != null && _selectedVariation!['label'] == v['label'];
-              final outOfStock = (v['stock'] as num? ?? 0) <= 0;
+              final selected =
+                  _selectedVariation != null &&
+                  _selectedVariation!['label'] == v['label'];
+              final stock = v['stock'] as num? ?? 0;
+              final outOfStock = stock == 0;
               return InkWell(
                 borderRadius: BorderRadius.circular(8),
-                onTap: outOfStock ? null : () => setState(() => _selectedVariation = v),
+                onTap: outOfStock
+                    ? null
+                    : () => setState(() => _selectedVariation = v),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
-                    color: selected ? themeOrange.withValues(alpha: 0.08) : bgColor,
+                    color: selected
+                        ? themeOrange.withValues(alpha: 0.08)
+                        : bgColor,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: selected ? themeOrange : cardBorder,
@@ -605,14 +829,18 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
                           fontWeight: FontWeight.w800,
                           fontSize: 13,
                           color: outOfStock ? textSecondary : primaryDark,
-                          decoration: outOfStock ? TextDecoration.lineThrough : null,
+                          decoration: outOfStock
+                              ? TextDecoration.lineThrough
+                              : null,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         outOfStock
                             ? "Out of stock"
-                            : "₱${Utility().formatPrice(v['price'])} · Stock ${v['stock']}",
+                            : stock < 0
+                            ? "₱${Utility().formatPrice(v['price'])}"
+                            : "₱${Utility().formatPrice(v['price'])} • Stock $stock",
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -637,12 +865,26 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
           children: [
-            Icon(Icons.storefront_rounded, color: const Color(0xFF10B981), size: 20),
+            Icon(
+              Icons.storefront_rounded,
+              color: const Color(0xFF10B981),
+              size: 20,
+            ),
             const SizedBox(width: 12),
-            const Text("Pickup:", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            const Text(
+              "Pickup:",
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text("In-Store Pickup only", style: TextStyle(color: primaryDark, fontSize: 13, fontWeight: FontWeight.w600)),
+              child: Text(
+                "In-Store Pickup only",
+                style: TextStyle(
+                  color: primaryDark,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -650,7 +892,15 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
                 color: const Color(0xFF10B981).withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Text("NO DELIVERY", style: TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 0.5)),
+              child: const Text(
+                "NO DELIVERY",
+                style: TextStyle(
+                  color: Color(0xFF10B981),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 10,
+                  letterSpacing: 0.5,
+                ),
+              ),
             ),
           ],
         ),
@@ -660,8 +910,8 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
     final String display = _isLoadingRates
         ? "Loading rates..."
         : (_deliveryRates.isEmpty
-            ? "No delivery rates set"
-            : "${_deliveryRates.length} delivery area(s)");
+              ? "No delivery rates set"
+              : "${_deliveryRates.length} delivery area(s)");
 
     return InkWell(
       onTap: () {
@@ -683,12 +933,27 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
           children: [
             Icon(Icons.local_shipping_outlined, color: textSecondary, size: 20),
             const SizedBox(width: 12),
-            const Text("Delivery:", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            const Text(
+              "Delivery:",
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(display, style: TextStyle(color: _deliveryRates.isEmpty ? Colors.red : primaryDark, fontSize: 13, fontWeight: FontWeight.w500)),
+              child: Text(
+                display,
+                style: TextStyle(
+                  color: _deliveryRates.isEmpty ? Colors.red : primaryDark,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
-            if (_deliveryRates.isNotEmpty) const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
+            if (_deliveryRates.isNotEmpty)
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.grey,
+                size: 20,
+              ),
           ],
         ),
       ),
@@ -700,7 +965,8 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
       _showSnack("Please choose a variation first.");
       return;
     }
-    final basePrice = num.tryParse(widget.item['item_price']?.toString() ?? '0') ?? 0;
+    final basePrice =
+        num.tryParse(widget.item['item_price']?.toString() ?? '0') ?? 0;
     final price = _selectedVariation != null
         ? (_selectedVariation!['price'] as num? ?? basePrice)
         : basePrice;
@@ -712,8 +978,9 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
             {
               'store_items': widget.item,
               'cart_quantity': 1,
-              if (_selectedVariation != null) 'cart_variation': _selectedVariation,
-            }
+              if (_selectedVariation != null)
+                'cart_variation': _selectedVariation,
+            },
           ],
           totalAmount: price,
         ),
@@ -722,23 +989,31 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
   }
 
   Future<void> _openShop() async {
-    final String? sellerId = widget.item['item_seller_id']?.toString() ?? widget.item['seller_id']?.toString();
+    final String? sellerId =
+        widget.item['item_seller_id']?.toString() ??
+        widget.item['seller_id']?.toString();
     if (sellerId == null || sellerId.isEmpty) return;
 
     // If a ViewShop for this seller is already in the stack, pop back to it
     if (ViewShop.openShops.contains(sellerId)) {
-      Navigator.of(context).popUntil((route) =>
-          route.settings.name == 'ViewShop:$sellerId' || route.isFirst);
+      Navigator.of(context).popUntil(
+        (route) => route.settings.name == 'ViewShop:$sellerId' || route.isFirst,
+      );
       return;
     }
 
-    Map<String, dynamic> sellerData = (widget.item['sellers'] is Map<String, dynamic>)
+    Map<String, dynamic> sellerData =
+        (widget.item['sellers'] is Map<String, dynamic>)
         ? Map<String, dynamic>.from(widget.item['sellers'])
         : <String, dynamic>{};
 
     try {
       if (sellerData.isEmpty || sellerData['seller_store_name'] == null) {
-        final row = await _supabase.from('sellers').select().eq('seller_id', sellerId).maybeSingle();
+        final row = await _supabase
+            .from('sellers')
+            .select()
+            .eq('seller_id', sellerId)
+            .maybeSingle();
         if (row != null) sellerData = Map<String, dynamic>.from(row);
       }
     } catch (e) {
@@ -776,14 +1051,24 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
               radius: 26,
               backgroundColor: cardBorder,
               backgroundImage: logoProvider,
-              child: logoProvider == null ? Icon(Icons.storefront_rounded, color: textSecondary) : null,
+              child: logoProvider == null
+                  ? Icon(Icons.storefront_rounded, color: textSecondary)
+                  : null,
             ),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: InkWell(
               onTap: _openShop,
-              child: Text(merchant, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis),
+              child: Text(
+                merchant,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
           OutlinedButton(
@@ -791,9 +1076,14 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
             style: OutlinedButton.styleFrom(
               foregroundColor: themeOrange,
               side: BorderSide(color: themeOrange),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
             ),
-            child: const Text("View Shop", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+            child: const Text(
+              "View Shop",
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+            ),
           ),
         ],
       ),
@@ -808,9 +1098,25 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("PRODUCT DESCRIPTION", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textSecondary, letterSpacing: 1.2)),
+          Text(
+            "PRODUCT DESCRIPTION",
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              color: textSecondary,
+              letterSpacing: 1.2,
+            ),
+          ),
           const SizedBox(height: 12),
-          Text(description, style: TextStyle(fontSize: 14, color: primaryDark.withValues(alpha: 0.8), height: 1.6, fontWeight: FontWeight.w400)),
+          Text(
+            description,
+            style: TextStyle(
+              fontSize: 14,
+              color: primaryDark.withValues(alpha: 0.8),
+              height: 1.6,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
         ],
       ),
     );
@@ -818,7 +1124,15 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
 
   Widget _buildImageCarousel(List<String> images) {
     if (images.isEmpty) {
-      return Container(color: Colors.white, alignment: Alignment.center, child: Icon(Icons.image_outlined, size: 64, color: textSecondary.withValues(alpha: 0.2)));
+      return Container(
+        color: Colors.white,
+        alignment: Alignment.center,
+        child: Icon(
+          Icons.image_outlined,
+          size: 64,
+          color: textSecondary.withValues(alpha: 0.2),
+        ),
+      );
     }
     return ScrollConfiguration(
       behavior: _DragScrollBehavior(),
@@ -833,15 +1147,15 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
               return GestureDetector(
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => ImageViewer(imageUrls: images, initialIndex: i)),
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        ImageViewer(imageUrls: images, initialIndex: i),
+                  ),
                 ),
                 child: InteractiveViewer(
                   minScale: 1.0,
                   maxScale: 2.5,
-                  child: Hero(
-                    tag: 'hero_$src',
-                    child: _buildImage(src),
-                  ),
+                  child: Hero(tag: 'hero_$src', child: _buildImage(src)),
                 ),
               );
             },
@@ -851,8 +1165,18 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
             right: 16,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.5), borderRadius: BorderRadius.circular(12)),
-              child: Text("${_activeImage + 1} / ${images.length}", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                "${_activeImage + 1} / ${images.length}",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ),
         ],
@@ -862,40 +1186,80 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
 
   Widget _buildImage(String src, {BoxFit fit = BoxFit.cover}) {
     if (src.startsWith('http')) {
-      return Image.network(src, fit: fit, errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_rounded, color: Colors.grey, size: 48)));
+      return Image.network(
+        src,
+        fit: fit,
+        errorBuilder: (_, __, ___) => const Center(
+          child: Icon(Icons.broken_image_rounded, color: Colors.grey, size: 48),
+        ),
+      );
     }
     final bytes = Utility.decodeHexImage(src);
     if (bytes != null) {
-      return Image.memory(bytes, fit: fit, errorBuilder: (_, __, ___) => const Center(child: Icon(Icons.broken_image_rounded, color: Colors.grey, size: 48)));
+      return Image.memory(
+        bytes,
+        fit: fit,
+        errorBuilder: (_, __, ___) => const Center(
+          child: Icon(Icons.broken_image_rounded, color: Colors.grey, size: 48),
+        ),
+      );
     }
-    return const Center(child: Icon(Icons.broken_image_rounded, color: Colors.grey, size: 48));
+    return const Center(
+      child: Icon(Icons.broken_image_rounded, color: Colors.grey, size: 48),
+    );
   }
 
   Widget _buildStatBadge(String label, IconData? icon, Color color) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (icon != null) ...[Icon(icon, size: 16, color: color), const SizedBox(width: 4)],
-        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color)),
+        if (icon != null) ...[
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 4),
+        ],
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
       ],
     );
   }
 
   Widget _buildRecommendationsList() {
     if (_isLoadingRecs) {
-      return const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()));
+      return const SizedBox(
+        height: 200,
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
 
     if (_recommendations.isEmpty) {
       return Container(
         height: 100,
         alignment: Alignment.center,
-        child: Text("No recommendations yet", style: TextStyle(color: textSecondary, fontSize: 13, fontWeight: FontWeight.w500)),
+        child: Text(
+          "No recommendations yet",
+          style: TextStyle(
+            color: textSecondary,
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
       );
     }
 
     final double w = MediaQuery.of(context).size.width;
-    final int cols = w >= 1100 ? 5 : w >= 800 ? 4 : w >= 600 ? 3 : 2;
+    final int cols = w >= 1100
+        ? 5
+        : w >= 800
+        ? 4
+        : w >= 600
+        ? 3
+        : 2;
 
     return MasonryGrid(
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -903,53 +1267,86 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
       spacing: 8,
       children: [
         for (final item in _recommendations)
-          Builder(builder: (context) {
-            final String img = (item['item_images'] as List?)?.first?.toString() ?? "";
-            return GestureDetector(
-              onTap: () {
-                Navigator.pop(context);
-                StoreItemDetails.open(context, item);
-              },
-              child: Container(
-                decoration: BoxDecoration(color: Colors.white, border: Border.all(color: cardBorder, width: 0.5), borderRadius: BorderRadius.circular(10)),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      AspectRatio(
-                        aspectRatio: 1,
-                        child: img.isNotEmpty
-                            ? _buildImage(img)
-                            : Container(color: bgColor, child: const Center(child: Icon(Icons.image_outlined))),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(6.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(item['item_name'] ?? 'Item', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, height: 1.25)),
-                            const SizedBox(height: 4),
-                            Text("₱${Utility().formatPrice(item['item_price'])}", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: themeOrange)),
-                          ],
+          Builder(
+            builder: (context) {
+              final String img =
+                  (item['item_images'] as List?)?.first?.toString() ?? "";
+              return GestureDetector(
+                onTap: () {
+                  Navigator.pop(context);
+                  StoreItemDetails.open(context, item);
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: cardBorder, width: 0.5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AspectRatio(
+                          aspectRatio: 1,
+                          child: img.isNotEmpty
+                              ? _buildImage(img)
+                              : Container(
+                                  color: bgColor,
+                                  child: const Center(
+                                    child: Icon(Icons.image_outlined),
+                                  ),
+                                ),
                         ),
-                      ),
-                    ],
+                        Padding(
+                          padding: const EdgeInsets.all(6.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item['item_name'] ?? 'Item',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w500,
+                                  height: 1.25,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                "₱${Utility().formatPrice(_displayPriceFor(item))}",
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                  color: themeOrange,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          }),
+              );
+            },
+          ),
       ],
     );
   }
 
   Widget _buildStickyBottomBar() {
-    final bool isWide = Responsive.isDesktop(context) || Responsive.isTablet(context);
+    final bool isWide =
+        Responsive.isDesktop(context) || Responsive.isTablet(context);
 
     final Widget chatBtn = Padding(
       padding: EdgeInsets.symmetric(horizontal: isWide ? 12.0 : 0),
-      child: _buildBottomIcon(Icons.chat_bubble_outline_rounded, "Chat", _openChat),
+      child: _buildBottomIcon(
+        Icons.chat_bubble_outline_rounded,
+        "Chat",
+        _openChat,
+      ),
     );
 
     final Widget divider = Container(width: 0.5, height: 30, color: cardBorder);
@@ -959,17 +1356,38 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
       onTap: _isCartBusy ? null : (inCart ? _removeFromCart : _addToCart),
       child: Container(
         height: 56,
-        color: inCart ? themeOrange.withValues(alpha: 0.15) : const Color(0xFFFFF2EE),
+        color: inCart
+            ? themeOrange.withValues(alpha: 0.15)
+            : const Color(0xFFFFF2EE),
         alignment: Alignment.center,
         child: _isCartBusy
-            ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: themeOrange))
+            ? SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: themeOrange,
+                ),
+              )
             : Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(inCart ? Icons.remove_shopping_cart_rounded : Icons.add_shopping_cart_rounded, color: themeOrange, size: 18),
+                  Icon(
+                    inCart
+                        ? Icons.remove_shopping_cart_rounded
+                        : Icons.add_shopping_cart_rounded,
+                    color: themeOrange,
+                    size: 18,
+                  ),
                   const SizedBox(width: 6),
-                  Text(inCart ? "Remove from Cart" : "Add to Cart",
-                    style: TextStyle(color: themeOrange, fontWeight: FontWeight.w700, fontSize: 14)),
+                  Text(
+                    inCart ? "Remove from Cart" : "Add to Cart",
+                    style: TextStyle(
+                      color: themeOrange,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
                 ],
               ),
       ),
@@ -981,12 +1399,21 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
         height: 56,
         color: themeOrange,
         alignment: Alignment.center,
-        child: const Text("Buy Now", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15)),
+        child: const Text(
+          "Buy Now",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 15,
+          ),
+        ),
       ),
     );
 
     final Widget bar = Row(
-      mainAxisAlignment: isWide ? MainAxisAlignment.center : MainAxisAlignment.start,
+      mainAxisAlignment: isWide
+          ? MainAxisAlignment.center
+          : MainAxisAlignment.start,
       children: [
         chatBtn,
         divider,
@@ -1006,17 +1433,17 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(top: BorderSide(color: cardBorder, width: 0.5)),
-        boxShadow: isWide ? [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -5),
-          )
-        ] : null,
+        boxShadow: isWide
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
+                ),
+              ]
+            : null,
       ),
-      child: SafeArea(
-        child: bar,
-      ),
+      child: SafeArea(child: bar),
     );
   }
 
@@ -1031,7 +1458,14 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
           children: [
             Icon(icon, size: 18, color: themeOrange),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(fontSize: 10, color: textSecondary, fontWeight: FontWeight.w500)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                color: textSecondary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ],
         ),
       ),

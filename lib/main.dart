@@ -12,6 +12,7 @@ import 'package:gasan_port_tracker/FloatingMessages/SnackbarMessenger.dart';
 import 'package:gasan_port_tracker/Utility/ImageDirectory.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'Services/AndroidBatteryOptimizationService.dart';
 import 'Services/BackgroundService.dart';
 import 'Utility/Utility.dart';
 
@@ -60,7 +61,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -86,6 +86,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _initializeApp() async {
     await _requestPermissions();
+    _logAuthProviderId(supabase.auth.currentUser);
     _initLogic();
   }
 
@@ -97,41 +98,39 @@ class _SplashScreenState extends State<SplashScreen> {
       Permission.notification,
     ];
 
-    if (Platform.isAndroid) {
-      permissionsToRequest.add(Permission.storage);
-      permissionsToRequest.add(Permission.photos);
-    } else if (Platform.isIOS) {
-      permissionsToRequest.add(Permission.photos);
-    }
-
     await permissionsToRequest.request();
+    await AndroidBatteryOptimizationService.requestExemptionIfNeeded();
   }
 
   void _initLogic() async {
-    if(await Utility().hasInternetConnection()){
+    if (await Utility().hasInternetConnection()) {
       await Future.delayed(const Duration(seconds: 2));
 
       if (SupabaseAuthentication().isUserAuthenticated()) {
         if (mounted) {
           Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const MainNavigation())
+            context,
+            MaterialPageRoute(builder: (context) => const MainNavigation()),
           );
         }
       } else {
         if (mounted) {
           Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => const LoginSignup())
+            context,
+            MaterialPageRoute(builder: (context) => const LoginSignup()),
           );
         }
       }
-    }else{
-      if(mounted) {
-        SnackbarMessenger().showSnackbar(context, SnackbarMessenger.neutral, "You're currently offline");
+    } else {
+      if (mounted) {
+        SnackbarMessenger().showSnackbar(
+          context,
+          SnackbarMessenger.neutral,
+          "You're currently offline",
+        );
         Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const EmergencyScreen())
+          context,
+          MaterialPageRoute(builder: (context) => const EmergencyScreen()),
         );
       }
     }
@@ -145,7 +144,9 @@ class _SplashScreenState extends State<SplashScreen> {
       }
 
       if (status.isDenied || status.isPermanentlyDenied) {
-        Utility().printLog("Notification permission denied by user. Exiting app...");
+        Utility().printLog(
+          "Notification permission denied by user. Exiting app...",
+        );
 
         await SystemNavigator.pop();
         exit(0);
@@ -160,12 +161,33 @@ class _SplashScreenState extends State<SplashScreen> {
     if (kIsWeb) {
       supabase.auth.onAuthStateChange.listen((data) async {
         if (data.session != null) {
+          _logAuthProviderId(data.session!.user);
           if (await _userDataExist(data.session!.user.id) == false) {
             await _createUserData(data.session!.user);
           }
         }
       });
     }
+  }
+
+  void _logAuthProviderId(User? user) {
+    if (user == null) {
+      Utility().printLog("Auth provider_id: <no authenticated user>");
+      return;
+    }
+
+    String? providerId;
+    for (final identity in user.identities ?? []) {
+      final data = identity.identityData;
+      providerId = data?['provider_id']?.toString() ??
+          data?['sub']?.toString() ??
+          identity.id;
+      if (providerId != null && providerId.isNotEmpty) break;
+    }
+
+    Utility().printLog(
+      "Auth provider_id: ${providerId ?? '<none>'} user_id=${user.id}",
+    );
   }
 
   Future<void> _createUserData(User? user) async {
@@ -179,7 +201,7 @@ class _SplashScreenState extends State<SplashScreen> {
       'user_account': email,
       'user_id': userId,
       'avatar_url': avatarUrl,
-      'user_access': null
+      'user_access': null,
     };
 
     await supabase.from("user_data").insert(userData);
@@ -209,7 +231,6 @@ class _SplashScreenState extends State<SplashScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-
               const Spacer(),
 
               Container(
@@ -224,11 +245,15 @@ class _SplashScreenState extends State<SplashScreen> {
                       color: primaryGreen.withValues(alpha: 0.15),
                       blurRadius: 30,
                       offset: const Offset(0, 15),
-                    )
+                    ),
                   ],
                 ),
                 child: Center(
-                  child: Image.asset(ImageDirectory().getOfficialRoundedLogoPath(), width: 80, height: 80),
+                  child: Image.asset(
+                    ImageDirectory().getOfficialRoundedLogoPath(),
+                    width: 80,
+                    height: 80,
+                  ),
                 ),
               ),
 

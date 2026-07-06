@@ -1,95 +1,94 @@
 import 'package:flutter/material.dart';
 
-class LoadingDialog{
-  bool _isShowing = false;
+class LoadingDialog {
+  OverlayEntry? _entry;
+  final ValueNotifier<String> _title = ValueNotifier<String>('Loading...');
 
-  BuildContext? dialogContext;
-  StateSetter? _stateSetter;
-  String _title = "loading...";
+  bool get _isShowing => _entry != null;
 
-  void showLoadingDialog(BuildContext mainContext){
-    _title = "loading...";
-    _isShowing = true;
-    showDialog(
-      barrierDismissible: false,
-      context: mainContext,
-      builder: (BuildContext context) {
-        dialogContext = context;
-        return PopScope(
-          canPop: false,
-          child: Dialog(
-            backgroundColor: Colors.transparent,
-            alignment: Alignment.center,
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: SizedBox(
-                  width: 150,
+  void showLoadingDialog(BuildContext context) {
+    if (_isShowing) {
+      _title.value = 'Loading...';
+      return;
+    }
+
+    final overlay = Overlay.of(context, rootOverlay: true);
+    _title.value = 'Loading...';
+    _entry = OverlayEntry(
+      builder: (_) => Material(
+        type: MaterialType.transparency,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const ModalBarrier(dismissible: false, color: Colors.black38),
+            SafeArea(
+              child: Center(
+                child: Container(
+                  width: 180,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 22,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 18,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const SizedBox(
-                        height: 10,
+                        width: 30,
+                        height: 30,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          strokeCap: StrokeCap.round,
+                          color: Color(0xFF0A2E5C),
+                        ),
                       ),
-
-                      const CircularProgressIndicator(
-                        strokeCap: StrokeCap.round,
-                        color: Colors.black,
-                      ),
-
-                      const SizedBox(
-                        height: 10,
-                      ),
-
-                      Padding(
-                        padding: const EdgeInsets.all(5),
-                        child: StatefulBuilder(
-                          builder: (context, setState){
-                            _stateSetter = setState;
-                            return Text(
-                                _title
-                            );
-                          },
+                      const SizedBox(height: 14),
+                      ValueListenableBuilder<String>(
+                        valueListenable: _title,
+                        builder: (_, title, _) => Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF0F172A),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ],
-                  )
+                  ),
+                ),
               ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
+    overlay.insert(_entry!);
   }
 
-  void dismiss(){
-    if(!_isShowing) return;
-    _isShowing = false;
-    _stateSetter = null;
-    if(dialogContext != null) Navigator.pop(dialogContext!);
-    dialogContext = null;
+  void dismiss() {
+    final entry = _entry;
+    _entry = null;
+    if (entry?.mounted == true) entry!.remove();
   }
 
-  void dismissWithContext(BuildContext context){
-    if(!_isShowing) return;
-    _isShowing = false;
-    _stateSetter = null;
-    if(dialogContext != null) Navigator.pop(context);
-    dialogContext = null;
-  }
+  void dismissWithContext(BuildContext context) => dismiss();
 
-  void updateTitle(String title){
-    _title = title;
-    if(!_isShowing) return;
-    if(_stateSetter != null){
-      try {
-        _stateSetter!((){});
-      } catch (_) {
-        // Builder state was disposed — ignore.
-      }
-    }
+  void updateTitle(String title) {
+    if (!_isShowing || _title.value == title) return;
+    _title.value = title;
   }
 }

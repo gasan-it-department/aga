@@ -1,7 +1,4 @@
-
-import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
@@ -54,7 +51,7 @@ class Utility {
   }
 
   String getCurrentGlobalVersion(){
-    return "1.2.3 alpha";
+    return "1.2.4 alpha";
   }
 
   String formatEpochToTime(int epochSeconds) {

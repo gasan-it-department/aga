@@ -33,10 +33,15 @@ class ItemVariations {
   static num totalStock(dynamic raw, {num fallback = 0}) {
     final vs = parse(raw);
     if (vs.isEmpty) return fallback;
+    if (vs.any((v) => (v['stock'] as num) < 0)) return -1;
     return vs.fold<num>(0, (s, v) => s + (v['stock'] as num));
   }
 
-  static String priceLabel(dynamic raw, num fallbackPrice, String Function(num) format) {
+  static String priceLabel(
+    dynamic raw,
+    num fallbackPrice,
+    String Function(num) format,
+  ) {
     final vs = parse(raw);
     if (vs.isEmpty) return "₱${format(fallbackPrice)}";
     final lo = minPrice(raw);

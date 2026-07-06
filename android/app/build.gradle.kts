@@ -26,8 +26,8 @@ android {
         applicationId = "com.aga.gasan.app"
         minSdk = 25
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.2.3 alpha"
+        versionCode = 19
+        versionName = "1.2.6 alpha"
 
         externalNativeBuild {
             cmake {

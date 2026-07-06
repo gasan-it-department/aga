@@ -7,11 +7,11 @@ import 'package:gasan_port_tracker/Utility/ImageViewer.dart';
 class _DragScrollBehavior extends MaterialScrollBehavior {
   @override
   Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-        PointerDeviceKind.stylus,
-      };
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+  };
 }
 
 class StoreItemDetailsBottomSheet {
@@ -53,14 +53,22 @@ class StoreItemDetailsBottomSheet {
     }
     final bytes = Utility.decodeHexImage(src);
     if (bytes == null) return _broken();
-    return Image.memory(bytes, fit: fit, errorBuilder: (_, __, ___) => _broken());
+    return Image.memory(
+      bytes,
+      fit: fit,
+      errorBuilder: (_, __, ___) => _broken(),
+    );
   }
 
   static Widget _broken() {
     return Container(
       color: const Color(0xFFF1F5F9),
       alignment: Alignment.center,
-      child: Icon(Icons.broken_image_rounded, color: Colors.grey.shade400, size: 32),
+      child: Icon(
+        Icons.broken_image_rounded,
+        color: Colors.grey.shade400,
+        size: 32,
+      ),
     );
   }
 }
@@ -83,7 +91,8 @@ class _SheetState extends State<_Sheet> {
       context,
       PageRouteBuilder(
         opaque: false,
-        pageBuilder: (_, __, ___) => ImageViewer(imageUrls: images, initialIndex: index),
+        pageBuilder: (_, __, ___) =>
+            ImageViewer(imageUrls: images, initialIndex: index),
       ),
     );
   }
@@ -91,7 +100,9 @@ class _SheetState extends State<_Sheet> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
-    final List<String> images = StoreItemDetailsBottomSheet.parseImages(item['item_images']);
+    final List<String> images = StoreItemDetailsBottomSheet.parseImages(
+      item['item_images'],
+    );
     final bool isAvailable = item['item_available'] ?? false;
     final variations = ItemVariations.parse(item['item_variations']);
     final num stock = variations.isNotEmpty
@@ -101,7 +112,9 @@ class _SheetState extends State<_Sheet> {
     final String description = (item['item_description'] ?? '').toString();
     final String category = (item['item_category'] ?? 'General').toString();
     final String type = (item['item_type'] ?? 'OTHER').toString().toUpperCase();
-    final double price = (item['item_price'] is num) ? (item['item_price'] as num).toDouble() : 0;
+    final double price = (item['item_price'] is num)
+        ? (item['item_price'] as num).toDouble()
+        : 0;
 
     final maxH = MediaQuery.of(context).size.height * 0.88;
 
@@ -119,7 +132,8 @@ class _SheetState extends State<_Sheet> {
             children: [
               Container(
                 margin: const EdgeInsets.only(top: 10),
-                width: 40, height: 4,
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
                   color: StoreItemDetailsBottomSheet.cardBorder,
                   borderRadius: BorderRadius.circular(10),
@@ -141,37 +155,55 @@ class _SheetState extends State<_Sheet> {
                             Row(
                               children: [
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: StoreItemDetailsBottomSheet.primaryBlue.withValues(alpha: 0.1),
+                                    color: StoreItemDetailsBottomSheet
+                                        .primaryBlue
+                                        .withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
-                                  child: Text(type,
-                                      style: TextStyle(
-                                          fontSize: 9.5,
-                                          fontWeight: FontWeight.w900,
-                                          color: StoreItemDetailsBottomSheet.primaryBlue,
-                                          letterSpacing: 0.6)),
+                                  child: Text(
+                                    type,
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w900,
+                                      color: StoreItemDetailsBottomSheet
+                                          .primaryBlue,
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: (isAvailable
-                                            ? StoreItemDetailsBottomSheet.successColor
-                                            : StoreItemDetailsBottomSheet.textSecondary)
-                                        .withValues(alpha: 0.1),
+                                    color:
+                                        (isAvailable
+                                                ? StoreItemDetailsBottomSheet
+                                                      .successColor
+                                                : StoreItemDetailsBottomSheet
+                                                      .textSecondary)
+                                            .withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Container(
-                                        width: 6, height: 6,
+                                        width: 6,
+                                        height: 6,
                                         decoration: BoxDecoration(
                                           color: isAvailable
-                                              ? StoreItemDetailsBottomSheet.successColor
-                                              : StoreItemDetailsBottomSheet.textSecondary,
+                                              ? StoreItemDetailsBottomSheet
+                                                    .successColor
+                                              : StoreItemDetailsBottomSheet
+                                                    .textSecondary,
                                           shape: BoxShape.circle,
                                         ),
                                       ),
@@ -179,12 +211,15 @@ class _SheetState extends State<_Sheet> {
                                       Text(
                                         isAvailable ? "ACTIVE" : "HIDDEN",
                                         style: TextStyle(
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.w900,
-                                            color: isAvailable
-                                                ? StoreItemDetailsBottomSheet.successColor
-                                                : StoreItemDetailsBottomSheet.textSecondary,
-                                            letterSpacing: 0.6),
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w900,
+                                          color: isAvailable
+                                              ? StoreItemDetailsBottomSheet
+                                                    .successColor
+                                              : StoreItemDetailsBottomSheet
+                                                    .textSecondary,
+                                          letterSpacing: 0.6,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -195,32 +230,39 @@ class _SheetState extends State<_Sheet> {
                             Text(
                               name,
                               style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w900,
-                                  color: StoreItemDetailsBottomSheet.primaryDark,
-                                  letterSpacing: -0.4),
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                                color: StoreItemDetailsBottomSheet.primaryDark,
+                                letterSpacing: -0.4,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             Text(
                               variations.isNotEmpty
-                                  ? ItemVariations.priceLabel(item['item_variations'], price,
-                                      (v) => Utility().formatPrice(v))
+                                  ? ItemVariations.priceLabel(
+                                      item['item_variations'],
+                                      price,
+                                      (v) => Utility().formatPrice(v),
+                                    )
                                   : "₱${Utility().formatPrice(price)}",
                               style: TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w900,
-                                  color: StoreItemDetailsBottomSheet.priceColor,
-                                  letterSpacing: -0.5),
+                                fontSize: 26,
+                                fontWeight: FontWeight.w900,
+                                color: StoreItemDetailsBottomSheet.priceColor,
+                                letterSpacing: -0.5,
+                              ),
                             ),
                             if (variations.isNotEmpty) ...[
                               const SizedBox(height: 14),
                               Text(
                                 "VARIATIONS",
                                 style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w900,
-                                    color: StoreItemDetailsBottomSheet.textSecondary,
-                                    letterSpacing: 1.2),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                  color:
+                                      StoreItemDetailsBottomSheet.textSecondary,
+                                  letterSpacing: 1.2,
+                                ),
                               ),
                               const SizedBox(height: 8),
                               Wrap(
@@ -228,28 +270,45 @@ class _SheetState extends State<_Sheet> {
                                 runSpacing: 8,
                                 children: variations.map((v) {
                                   return Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 6,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: StoreItemDetailsBottomSheet.bgColor,
+                                      color:
+                                          StoreItemDetailsBottomSheet.bgColor,
                                       borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: StoreItemDetailsBottomSheet.cardBorder),
+                                      border: Border.all(
+                                        color: StoreItemDetailsBottomSheet
+                                            .cardBorder,
+                                      ),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Text(v['label'].toString(),
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 12.5,
-                                                color: StoreItemDetailsBottomSheet.primaryDark)),
+                                        Text(
+                                          v['label'].toString(),
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 12.5,
+                                            color: StoreItemDetailsBottomSheet
+                                                .primaryDark,
+                                          ),
+                                        ),
                                         const SizedBox(height: 2),
                                         Text(
-                                            "₱${Utility().formatPrice(v['price'])} · Stock ${v['stock']}",
-                                            style: TextStyle(
-                                                fontSize: 10.5,
-                                                fontWeight: FontWeight.w600,
-                                                color: StoreItemDetailsBottomSheet.textSecondary)),
+                                          (v['stock'] as num) < 0
+                                              ? "₱${Utility().formatPrice(v['price'])}"
+                                              : "₱${Utility().formatPrice(v['price'])} · Stock ${v['stock']}",
+                                          style: TextStyle(
+                                            fontSize: 10.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: StoreItemDetailsBottomSheet
+                                                .textSecondary,
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   );
@@ -259,23 +318,28 @@ class _SheetState extends State<_Sheet> {
                             const SizedBox(height: 16),
                             Row(
                               children: [
-                                Expanded(
-                                  child: _infoTile(
-                                    icon: Icons.inventory_2_rounded,
-                                    label: "STOCK",
-                                    value: stock < 0 ? "N/A" : stock.toString(),
-                                    color: (stock < 0 || stock > 0)
-                                        ? StoreItemDetailsBottomSheet.successColor
-                                        : StoreItemDetailsBottomSheet.dangerColor,
+                                if (stock >= 0) ...[
+                                  Expanded(
+                                    child: _infoTile(
+                                      icon: Icons.inventory_2_rounded,
+                                      label: "STOCK",
+                                      value: stock.toString(),
+                                      color: stock > 0
+                                          ? StoreItemDetailsBottomSheet
+                                                .successColor
+                                          : StoreItemDetailsBottomSheet
+                                                .dangerColor,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 10),
+                                  const SizedBox(width: 10),
+                                ],
                                 Expanded(
                                   child: _infoTile(
                                     icon: Icons.folder_rounded,
                                     label: "CATEGORY",
                                     value: category,
-                                    color: StoreItemDetailsBottomSheet.primaryBlue,
+                                    color:
+                                        StoreItemDetailsBottomSheet.primaryBlue,
                                   ),
                                 ),
                               ],
@@ -285,19 +349,23 @@ class _SheetState extends State<_Sheet> {
                               Text(
                                 "DESCRIPTION",
                                 style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w900,
-                                    color: StoreItemDetailsBottomSheet.textSecondary,
-                                    letterSpacing: 1.2),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                  color:
+                                      StoreItemDetailsBottomSheet.textSecondary,
+                                  letterSpacing: 1.2,
+                                ),
                               ),
                               const SizedBox(height: 8),
                               Text(
                                 description,
                                 style: TextStyle(
-                                    fontSize: 14,
-                                    height: 1.55,
-                                    color: StoreItemDetailsBottomSheet.primaryDark.withValues(alpha: 0.85),
-                                    fontWeight: FontWeight.w500),
+                                  fontSize: 14,
+                                  height: 1.55,
+                                  color: StoreItemDetailsBottomSheet.primaryDark
+                                      .withValues(alpha: 0.85),
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ],
                           ],
@@ -325,8 +393,13 @@ class _SheetState extends State<_Sheet> {
             Container(
               color: StoreItemDetailsBottomSheet.bgColor,
               alignment: Alignment.center,
-              child: Icon(Icons.image_outlined,
-                  color: StoreItemDetailsBottomSheet.textSecondary.withValues(alpha: 0.3), size: 64),
+              child: Icon(
+                Icons.image_outlined,
+                color: StoreItemDetailsBottomSheet.textSecondary.withValues(
+                  alpha: 0.3,
+                ),
+                size: 64,
+              ),
             )
           else
             ScrollConfiguration(
@@ -346,7 +419,10 @@ class _SheetState extends State<_Sheet> {
               color: Colors.black.withValues(alpha: 0.4),
               alignment: Alignment.center,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black87,
                   borderRadius: BorderRadius.circular(20),
@@ -354,7 +430,11 @@ class _SheetState extends State<_Sheet> {
                 child: const Text(
                   "SOLD OUT",
                   style: TextStyle(
-                      color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.2),
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                  ),
                 ),
               ),
             ),
@@ -373,7 +453,9 @@ class _SheetState extends State<_Sheet> {
                     width: active ? 22 : 7,
                     height: 7,
                     decoration: BoxDecoration(
-                      color: active ? Colors.white : Colors.white.withValues(alpha: 0.5),
+                      color: active
+                          ? Colors.white
+                          : Colors.white.withValues(alpha: 0.5),
                       borderRadius: BorderRadius.circular(4),
                     ),
                   );
@@ -385,7 +467,12 @@ class _SheetState extends State<_Sheet> {
     );
   }
 
-  Widget _infoTile({required IconData icon, required String label, required String value, required Color color}) {
+  Widget _infoTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
@@ -401,20 +488,26 @@ class _SheetState extends State<_Sheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w900,
-                        color: color,
-                        letterSpacing: 0.8)),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                    letterSpacing: 0.8,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text(value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
-                        color: StoreItemDetailsBottomSheet.primaryDark)),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: StoreItemDetailsBottomSheet.primaryDark,
+                  ),
+                ),
               ],
             ),
           ),
@@ -428,14 +521,18 @@ class _SheetState extends State<_Sheet> {
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: StoreItemDetailsBottomSheet.cardBorder)),
+        border: Border(
+          top: BorderSide(color: StoreItemDetailsBottomSheet.cardBorder),
+        ),
       ),
       child: Row(
         children: [
           if (widget.onDelete != null)
             Container(
               decoration: BoxDecoration(
-                color: StoreItemDetailsBottomSheet.dangerColor.withValues(alpha: 0.1),
+                color: StoreItemDetailsBottomSheet.dangerColor.withValues(
+                  alpha: 0.1,
+                ),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: IconButton(
@@ -443,7 +540,10 @@ class _SheetState extends State<_Sheet> {
                   Navigator.pop(context);
                   widget.onDelete!();
                 },
-                icon: Icon(Icons.delete_outline_rounded, color: StoreItemDetailsBottomSheet.dangerColor),
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  color: StoreItemDetailsBottomSheet.dangerColor,
+                ),
                 tooltip: "Delete",
               ),
             ),
@@ -457,13 +557,18 @@ class _SheetState extends State<_Sheet> {
                       widget.onEdit!();
                     },
               icon: const Icon(Icons.edit_rounded, size: 18),
-              label: const Text("Edit Item", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+              label: const Text(
+                "Edit Item",
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: StoreItemDetailsBottomSheet.primaryBlue,
                 foregroundColor: Colors.white,
                 minimumSize: const Size.fromHeight(48),
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),
@@ -472,4 +577,3 @@ class _SheetState extends State<_Sheet> {
     );
   }
 }
-

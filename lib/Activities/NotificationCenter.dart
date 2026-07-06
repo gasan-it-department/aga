@@ -40,7 +40,8 @@ class _NotificationCenterState extends State<NotificationCenter> {
     _prefs = await SharedPreferences.getInstance();
 
     _readNotificationIds = _prefs?.getStringList('read_notifications') ?? [];
-    _deletedNotificationIds = _prefs?.getStringList('deleted_notifications') ?? [];
+    _deletedNotificationIds =
+        _prefs?.getStringList('deleted_notifications') ?? [];
 
     _fetchGlobalNotifications();
     _fetchLimitedNotifications();
@@ -55,32 +56,41 @@ class _NotificationCenterState extends State<NotificationCenter> {
           .select()
           .order('notification_date', ascending: false);
 
-      final List<Map<String, dynamic>> fetchedData = List<Map<String, dynamic>>.from(data);
+      final List<Map<String, dynamic>> fetchedData =
+          List<Map<String, dynamic>>.from(data);
 
-      String currentUserZipCode = _prefs?.getString("preferred_notification_municipality_zipcode") ?? "0000";
+      String currentUserZipCode =
+          _prefs?.getString("preferred_notification_municipality_zipcode") ??
+          "0000";
 
-      final List<Map<String, dynamic>> visibleNotifications = fetchedData.where((note) {
-        if (_deletedNotificationIds.contains(note['notification_id'].toString())) {
-          return false;
-        }
+      final List<Map<String, dynamic>> visibleNotifications = fetchedData.where(
+        (note) {
+          if (_deletedNotificationIds.contains(
+            note['notification_id'].toString(),
+          )) {
+            return false;
+          }
 
-        String notificationSource = note["notification_source"]?.toString() ?? "";
-        String notificationOriginZipCode = note["notification_origin_zipcode"]?.toString() ?? "0000";
+          String notificationSource =
+              note["notification_source"]?.toString() ?? "";
+          String notificationOriginZipCode =
+              note["notification_origin_zipcode"]?.toString() ?? "0000";
 
-        if (notificationSource == "mdrrmo") {
-          if (currentUserZipCode != "0000") {
-            if (currentUserZipCode == notificationOriginZipCode) {
-              return true;
+          if (notificationSource == "mdrrmo") {
+            if (currentUserZipCode != "0000") {
+              if (currentUserZipCode == notificationOriginZipCode) {
+                return true;
+              } else {
+                return false;
+              }
             } else {
-              return false;
+              return true;
             }
           } else {
             return true;
           }
-        } else {
-          return true;
-        }
-      }).toList();
+        },
+      ).toList();
 
       if (mounted) {
         setState(() {
@@ -92,7 +102,11 @@ class _NotificationCenterState extends State<NotificationCenter> {
       debugPrint("Error fetching global notifications: $e");
       if (mounted) {
         setState(() => _isLoadingGlobal = false);
-        SnackbarMessenger().showSnackbar(context, SnackbarMessenger.failed, "Failed to load global alerts.");
+        SnackbarMessenger().showSnackbar(
+          context,
+          SnackbarMessenger.failed,
+          "Failed to load global alerts.",
+        );
       }
     }
   }
@@ -178,7 +192,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
       _deletedNotificationIds.add(id);
       _globalNotifications.removeAt(index);
     });
-    await _prefs?.setStringList('deleted_notifications', _deletedNotificationIds);
+    await _prefs?.setStringList(
+      'deleted_notifications',
+      _deletedNotificationIds,
+    );
   }
 
   // --- DB ACTIONS (LIMITED) ---
@@ -191,9 +208,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
     });
 
     try {
-      await _supabase.from('user_data').update({
-        'limited_notifications': _limitedNotifications
-      }).eq('user_id', userId);
+      await _supabase
+          .from('user_data')
+          .update({'limited_notifications': _limitedNotifications})
+          .eq('user_id', userId);
     } catch (e) {
       debugPrint("Failed to delete limited notification from DB: $e");
     }
@@ -218,8 +236,12 @@ class _NotificationCenterState extends State<NotificationCenter> {
 
   @override
   Widget build(BuildContext context) {
-    bool hasUnreadGlobal = _globalNotifications.any((n) => !_readNotificationIds.contains(n['notification_id'].toString()));
-    bool hasUnreadLimited = _limitedNotifications.any((n) => !_readNotificationIds.contains(n['id'].toString()));
+    bool hasUnreadGlobal = _globalNotifications.any(
+      (n) => !_readNotificationIds.contains(n['notification_id'].toString()),
+    );
+    bool hasUnreadLimited = _limitedNotifications.any(
+      (n) => !_readNotificationIds.contains(n['id'].toString()),
+    );
     bool hasAnyUnread = hasUnreadGlobal || hasUnreadLimited;
 
     return DefaultTabController(
@@ -232,13 +254,21 @@ class _NotificationCenterState extends State<NotificationCenter> {
           foregroundColor: primaryDark,
           elevation: 0,
           centerTitle: false,
-          titleTextStyle: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: primaryDark, letterSpacing: -0.5),
+          titleTextStyle: TextStyle(
+            fontWeight: FontWeight.w900,
+            fontSize: 18,
+            color: primaryDark,
+            letterSpacing: -0.5,
+          ),
           actions: [
             if (hasAnyUnread)
               TextButton(
                 onPressed: _markAllAsRead,
                 style: TextButton.styleFrom(foregroundColor: accentBlue),
-                child: const Text("Mark all read", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                child: const Text(
+                  "Mark all read",
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
               ),
           ],
           bottom: TabBar(
@@ -246,8 +276,14 @@ class _NotificationCenterState extends State<NotificationCenter> {
             labelColor: accentBlue,
             unselectedLabelColor: textSecondary,
             indicatorWeight: 3,
-            labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            labelStyle: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
             tabs: const [
               Tab(text: "Global Alerts"),
               Tab(text: "Personal"),
@@ -268,16 +304,20 @@ class _NotificationCenterState extends State<NotificationCenter> {
 
   // --- TAB 1 BUILDER ---
   Widget _buildGlobalTab() {
-    if (_isLoadingGlobal) return Center(child: CircularProgressIndicator(color: accentBlue));
+    if (_isLoadingGlobal)
+      return Center(child: CircularProgressIndicator(color: accentBlue));
     if (_globalNotifications.isEmpty) return _buildEmptyState();
 
     return RefreshIndicator(
       color: accentBlue,
       onRefresh: _fetchGlobalNotifications,
       child: ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
         itemCount: _globalNotifications.length,
-        separatorBuilder: (context, index) => Divider(height: 1, color: outlineColor.withValues(alpha: 0.5)),
+        separatorBuilder: (context, index) =>
+            Divider(height: 1, color: outlineColor.withValues(alpha: 0.5)),
         itemBuilder: (context, index) {
           final note = _globalNotifications[index];
           String id = note['notification_id'].toString();
@@ -289,7 +329,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
             onDismissed: (direction) {
               _deleteGlobalNotification(index);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Alert dismissed'), duration: Duration(seconds: 2)),
+                const SnackBar(
+                  content: Text('Alert dismissed'),
+                  duration: Duration(seconds: 2),
+                ),
               );
             },
             child: _buildNotificationTile(
@@ -311,16 +354,20 @@ class _NotificationCenterState extends State<NotificationCenter> {
 
   // --- TAB 2 BUILDER ---
   Widget _buildLimitedTab() {
-    if (_isLoadingLimited) return Center(child: CircularProgressIndicator(color: accentBlue));
+    if (_isLoadingLimited)
+      return Center(child: CircularProgressIndicator(color: accentBlue));
     if (_limitedNotifications.isEmpty) return _buildEmptyState();
 
     return RefreshIndicator(
       color: accentBlue,
       onRefresh: _fetchLimitedNotifications,
       child: ListView.separated(
-        physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
         itemCount: _limitedNotifications.length,
-        separatorBuilder: (context, index) => Divider(height: 1, color: outlineColor.withValues(alpha: 0.5)),
+        separatorBuilder: (context, index) =>
+            Divider(height: 1, color: outlineColor.withValues(alpha: 0.5)),
         itemBuilder: (context, index) {
           final note = _limitedNotifications[index];
           String id = note['id']?.toString() ?? index.toString();
@@ -332,7 +379,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
             onDismissed: (direction) {
               _deleteLimitedNotification(index);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Notice deleted'), duration: Duration(seconds: 2)),
+                const SnackBar(
+                  content: Text('Notice deleted'),
+                  duration: Duration(seconds: 2),
+                ),
               );
             },
             child: _buildNotificationTile(
@@ -348,7 +398,8 @@ class _NotificationCenterState extends State<NotificationCenter> {
                   'notification_title': note['title'],
                   'notification_message': note['message'],
                   'notification_date': note['date_sent'],
-                  'notification_source': 'system' // To give it a default icon in the dialog
+                  'notification_source':
+                      'system', // To give it a default icon in the dialog
                 };
                 ViewNotificationDialog.show(context, mappedNote);
               },
@@ -366,7 +417,11 @@ class _NotificationCenterState extends State<NotificationCenter> {
       color: const Color(0xFFEF4444),
       alignment: Alignment.centerRight,
       padding: const EdgeInsets.only(right: 24),
-      child: const Icon(Icons.delete_sweep_rounded, color: Colors.white, size: 28),
+      child: const Icon(
+        Icons.delete_sweep_rounded,
+        color: Colors.white,
+        size: 28,
+      ),
     );
   }
 
@@ -428,7 +483,10 @@ class _NotificationCenterState extends State<NotificationCenter> {
             children: [
               Container(
                 padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: iconBgColor, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: iconBgColor,
+                  shape: BoxShape.circle,
+                ),
                 child: Icon(iconData, color: iconColor, size: 20),
               ),
               const SizedBox(width: 16),
@@ -445,7 +503,9 @@ class _NotificationCenterState extends State<NotificationCenter> {
                             title,
                             style: TextStyle(
                               fontSize: 15,
-                              fontWeight: isRead ? FontWeight.w700 : FontWeight.w900,
+                              fontWeight: isRead
+                                  ? FontWeight.w700
+                                  : FontWeight.w900,
                               color: textPrimary,
                             ),
                           ),
@@ -455,7 +515,9 @@ class _NotificationCenterState extends State<NotificationCenter> {
                           displayDate,
                           style: TextStyle(
                             fontSize: 11,
-                            fontWeight: isRead ? FontWeight.w500 : FontWeight.w800,
+                            fontWeight: isRead
+                                ? FontWeight.w500
+                                : FontWeight.w800,
                             color: isRead ? textSecondary : accentBlue,
                           ),
                         ),
@@ -466,7 +528,9 @@ class _NotificationCenterState extends State<NotificationCenter> {
                       message,
                       style: TextStyle(
                         fontSize: 13,
-                        color: isRead ? textSecondary : textPrimary.withValues(alpha: 0.8),
+                        color: isRead
+                            ? textSecondary
+                            : textPrimary.withValues(alpha: 0.8),
                         height: 1.4,
                       ),
                       maxLines: 2,
@@ -481,9 +545,12 @@ class _NotificationCenterState extends State<NotificationCenter> {
                   margin: const EdgeInsets.only(top: 6),
                   width: 8,
                   height: 8,
-                  decoration: BoxDecoration(color: accentBlue, shape: BoxShape.circle),
+                  decoration: BoxDecoration(
+                    color: accentBlue,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ]
+              ],
             ],
           ),
         ),
@@ -498,13 +565,30 @@ class _NotificationCenterState extends State<NotificationCenter> {
         children: [
           Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: primaryDark.withValues(alpha: 0.05), shape: BoxShape.circle),
-            child: Icon(Icons.notifications_off_rounded, size: 48, color: textSecondary.withValues(alpha: 0.5)),
+            decoration: BoxDecoration(
+              color: primaryDark.withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.notifications_off_rounded,
+              size: 48,
+              color: textSecondary.withValues(alpha: 0.5),
+            ),
           ),
           const SizedBox(height: 20),
-          Text("No notifications yet", style: TextStyle(color: primaryDark, fontWeight: FontWeight.w900, fontSize: 18)),
+          Text(
+            "No notifications yet",
+            style: TextStyle(
+              color: primaryDark,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text("When you get updates, they'll show up here.", style: TextStyle(color: textSecondary, fontWeight: FontWeight.w500)),
+          Text(
+            "When you get updates, they'll show up here.",
+            style: TextStyle(color: textSecondary, fontWeight: FontWeight.w500),
+          ),
         ],
       ),
     );
