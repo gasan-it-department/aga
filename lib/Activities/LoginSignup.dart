@@ -20,6 +20,7 @@ class LoginSignup extends StatefulWidget {
 
 class _LoginSignupState extends State<LoginSignup> {
   final _loadingDialog = LoadingDialog();
+  bool _isSigningIn = false;
 
   // AGA Brand Colors
   final Color primaryGreen = const Color(0xFF059669);
@@ -105,9 +106,18 @@ class _LoginSignupState extends State<LoginSignup> {
   }
 
   void _signIn() async {
+    if (_isSigningIn) return;
+    setState(() {
+      _isSigningIn = true;
+    });
     _loadingDialog.showLoadingDialog(context);
     SupabaseAuthentication().signInWithGoogle(
       (errorMessage, stacktrace) {
+        if (mounted) {
+          setState(() {
+            _isSigningIn = false;
+          });
+        }
         _loadingDialog.dismiss();
         _classicDialog.setTitle("An error occurred!");
         _classicDialog.setMessage(
@@ -146,6 +156,11 @@ class _LoginSignupState extends State<LoginSignup> {
             );
           }
         } else {
+          if (mounted) {
+            setState(() {
+              _isSigningIn = false;
+            });
+          }
           _loadingDialog.dismiss();
           SnackbarMessenger().showSnackbar(
             context,
@@ -344,9 +359,7 @@ class _LoginSignupState extends State<LoginSignup> {
                                       letterSpacing: 0.2,
                                     ),
                                   ),
-                                  onPressed: () {
-                                    _signIn();
-                                  },
+                                  onPressed: _isSigningIn ? null : _signIn,
                                 ),
                               ),
 

@@ -116,7 +116,7 @@ class SupabaseExternalAuthBridge {
     request.fields.addAll(
       payload.map((key, value) {
         if (key == 'is_anonymous') {
-          return MapEntry(key, value == true ? 'true' : 'false');
+          return MapEntry(key, value == true ? '1' : '0');
         }
         return MapEntry(key, value?.toString() ?? '');
       }),

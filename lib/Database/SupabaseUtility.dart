@@ -1,4 +1,3 @@
-
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gasan_port_tracker/Utility/BuildStatus.dart';
 
@@ -24,23 +23,27 @@ class SupabaseUtility {
   }
 
   // GASAN SUPABASE DATABASE PASSWORD = 4fb426c5ca2635b67891faff075780b1a2d80de3ac5a3c754993d49d90f58c09
-  String getSupabaseAnonKey(){
+  String getSupabaseAnonKey() {
     return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnYmJod3p0d2liY2doeHplaG5pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MzYwNzIsImV4cCI6MjA4NzAxMjA3Mn0.xzHHTJgmW3leDoAD4gyfvmkVYxZpky1H3ZY87zryoe8";
   }
 
-  String getSupabaseProjectURL(){
+  String getSupabaseProjectURL() {
     return "https://ugbbhwztwibcghxzehni.supabase.co";
   }
 
-  String getGoogleOauthClientId(){
-    return "594228251591-2sbp2f8uqud3fe1q19ihh31fftmhnnv1.apps.googleusercontent.com";
+  String getGoogleOauthClientId() {
+    return "119197520855-5jfgv88a307tsdue92q35jfoq0et2q35.apps.googleusercontent.com";
   }
 
-  String getSchema(){
-    if(BuildStatus().isDebugMode()){
+  String getGoogleIOSClientId() {
+    return "119197520855-u9ho51f085537s2m2kgtv5ugt3ie49d6.apps.googleusercontent.com";
+  }
+
+  String getSchema() {
+    if (BuildStatus().isDebugMode()) {
       return "test";
     }
-    if(_developerMode){
+    if (_developerMode) {
       return "test";
     }
     return "app_main_schema";

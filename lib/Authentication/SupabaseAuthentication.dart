@@ -8,6 +8,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseAuthentication {
+  static bool _googleSignInInProgress = false;
   final supabase = Supabase.instance.client;
   final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
 
@@ -20,6 +21,8 @@ class SupabaseAuthentication {
     void Function(String? errorMessage, StackTrace? stacktrrace) onError,
     void Function(AuthResponse authResponse) onSuccess,
   ) async {
+    if (_googleSignInInProgress) return;
+    _googleSignInInProgress = true;
     try {
       await Future.delayed(Duration(milliseconds: 500));
       if (kIsWeb) {
@@ -39,8 +42,13 @@ class SupabaseAuthentication {
         await Completer<void>().future;
         return null;
       } else {
+        final googleIOSClientId = SupabaseUtility().getGoogleIOSClientId();
         await _googleSignIn.initialize(
-          clientId: SupabaseUtility().getGoogleOauthClientId(),
+          clientId:
+              defaultTargetPlatform == TargetPlatform.iOS &&
+                  googleIOSClientId.isNotEmpty
+              ? googleIOSClientId
+              : null,
           serverClientId: SupabaseUtility().getGoogleOauthClientId(),
         );
 
@@ -53,23 +61,19 @@ class SupabaseAuthentication {
           throw 'Missing Google ID Token.';
         }
 
-        final authorization = await googleUser.authorizationClient
-            .authorizeScopes(['email', 'profile']);
-
-        final accessToken = authorization.accessToken;
-
         final response = await supabase.auth.signInWithIdToken(
           provider: OAuthProvider.google,
           idToken: idToken,
-          accessToken: accessToken,
         );
 
         Utility().printLog(
           'Supabase Sign-In Successful for: ${response.user?.email}',
         );
+        _googleSignInInProgress = false;
         onSuccess(response);
       }
     } catch (error, stacktrace) {
+      _googleSignInInProgress = false;
       Utility().printLog('General Error: $error');
       Utility().printLog('Stacktrace: $stacktrace');
       onError(error.toString(), stacktrace);

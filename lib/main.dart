@@ -1,8 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:gasan_port_tracker/Activities/MDRRMO/EmergencyScreen.dart';
 import 'package:gasan_port_tracker/Activities/MainNavigation.dart';
 import 'package:gasan_port_tracker/Activities/LoginSignup.dart';
@@ -145,11 +143,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
       if (status.isDenied || status.isPermanentlyDenied) {
         Utility().printLog(
-          "Notification permission denied by user. Exiting app...",
+          "Notification permission denied by user. Background service skipped.",
         );
-
-        await SystemNavigator.pop();
-        exit(0);
+        return;
       }
 
       final bgService = NotificationBackgroundService();
