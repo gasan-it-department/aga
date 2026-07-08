@@ -19,6 +19,7 @@ import 'package:gasan_port_tracker/Activities/MainNavigation.dart';
 import 'package:gasan_port_tracker/Activities/CommunityIssueReport.dart';
 import 'package:gasan_port_tracker/Activities/MarketplaceShops.dart';
 import 'package:gasan_port_tracker/Activities/NotificationCenter.dart';
+import 'package:gasan_port_tracker/Activities/RequestAmbulance.dart';
 import 'package:gasan_port_tracker/Dialogs/ClassicDialog.dart';
 import 'package:gasan_port_tracker/Dialogs/FacebookFollowDialog.dart';
 import 'package:gasan_port_tracker/Dialogs/HomePopupDialog.dart';
@@ -486,7 +487,7 @@ class _HomeState extends State<Home> {
           ),
         );
       }
-      _updateLastAppUsageDate();
+
     } catch (error, stackTrace) {
       if (mounted) _loadingDialog.dismiss();
       _showError(
@@ -551,16 +552,6 @@ class _HomeState extends State<Home> {
         }
       }
     }
-  }
-
-  Future<void> _updateLastAppUsageDate() async {
-    final String currentDate = Utility().getCurrentReadableDate(
-      "MMMM dd yyyy hh:mm a",
-    );
-    await supabase
-        .from('user_data')
-        .update({'user_app_last_use': currentDate})
-        .eq('user_id', _userId);
   }
 
   void _handleLogout() async {
@@ -844,28 +835,40 @@ class _HomeState extends State<Home> {
           );
         },
       ),
-      _QuickServiceItem(
-        title: 'Request\nAmbulance',
-        icon: Icons.airport_shuttle_rounded,
-        bgColor: const Color(0xFFF1F5F9),
-        iconColor: const Color(0xFF94A3B8),
-        isComingSoon: true,
-        onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text(
-                'Ambulance requesting service is coming soon!',
-                style: TextStyle(fontWeight: FontWeight.bold),
+      if (kDebugMode || SupabaseUtility.isDeveloperMode)
+        _QuickServiceItem(
+          title: 'Request\nAmbulance',
+          icon: Icons.airport_shuttle_rounded,
+          bgColor: const Color(0xFFFEF2F2),
+          iconColor: const Color(0xFFDC2626),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const RequestAmbulance()),
+          ),
+        )
+      else
+        _QuickServiceItem(
+          title: 'Request\nAmbulance',
+          icon: Icons.airport_shuttle_rounded,
+          bgColor: const Color(0xFFF1F5F9),
+          iconColor: const Color(0xFF94A3B8),
+          isComingSoon: true,
+          onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text(
+                  'Ambulance request testing is available in debug or developer mode only.',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                backgroundColor: const Color(0xFF0F2042),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-              backgroundColor: const Color(0xFF0F2042),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          );
-        },
-      ),
+            );
+          },
+        ),
       // Show Maritime (active) in debug/developer mode, otherwise Transportation (coming soon)
       if (kDebugMode || SupabaseUtility.isDeveloperMode)
         _QuickServiceItem(

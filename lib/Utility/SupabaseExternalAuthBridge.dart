@@ -32,33 +32,43 @@ class SupabaseExternalAuthBridge {
   Future<http.Response> authenticate({
     String deviceName = 'AGA Android App',
   }) async {
-    final session = Supabase.instance.client.auth.currentSession;
-    final supabaseToken = session?.accessToken;
-    final userId = session?.user.id;
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      final supabaseToken = session?.accessToken;
+      final userId = session?.user.id;
 
-    if (supabaseToken == null) {
-      throw Exception('No Supabase session token found.');
+      if (supabaseToken == null) {
+        throw Exception('No Supabase session token found.');
+      }
+      if (userId == null || userId.isEmpty) {
+        throw Exception('No Supabase user found.');
+      }
+
+      Utility().printLog(
+        'External auth bridge request: endpoint=$_endpoint user_id=$userId device=$deviceName',
+      );
+
+      final response = await http.post(
+        Uri.parse(_endpoint),
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({
+          'access_token': supabaseToken,
+          'device_name': deviceName,
+        }),
+      );
+
+      Utility().printLog('External auth bridge status: ${response.statusCode}');
+      Utility().printLog('External auth bridge body: ${response.body}');
+      await _storeTokenFromResponse(userId: userId, response: response);
+      return response;
+    } catch (e, stacktrace) {
+      Utility().printLog('External auth bridge failed: $e');
+      Utility().printLog('External auth bridge stacktrace: $stacktrace');
+      rethrow;
     }
-    if (userId == null || userId.isEmpty) {
-      throw Exception('No Supabase user found.');
-    }
-
-    final response = await http.post(
-      Uri.parse(_endpoint),
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'access_token': supabaseToken,
-        'device_name': deviceName,
-      }),
-    );
-
-    Utility().printLog('External auth bridge status: ${response.statusCode}');
-    Utility().printLog('External auth bridge body: ${response.body}');
-    await _storeTokenFromResponse(userId: userId, response: response);
-    return response;
   }
 
   Future<http.Response> getCommunityReportSubmissionContext() async {

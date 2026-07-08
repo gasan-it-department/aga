@@ -51,7 +51,7 @@ class Utility {
   }
 
   String getCurrentGlobalVersion(){
-    return "1.2.4 alpha";
+    return "1.2.7 alpha";
   }
 
   String formatEpochToTime(int epochSeconds) {

@@ -2,6 +2,8 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gasan_port_tracker/Activities/CommunityIssueReport.dart';
+import 'package:gasan_port_tracker/Activities/RequestAmbulance.dart';
+import 'package:gasan_port_tracker/Database/SupabaseUtility.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class Services extends StatelessWidget {
@@ -23,6 +25,7 @@ class Services extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ambulanceEnabled = kDebugMode || SupabaseUtility.isDeveloperMode;
     final services = [
       _ServiceItem(
         icon: Icons.business_center_rounded,
@@ -62,13 +65,19 @@ class Services extends StatelessWidget {
         actionLabel: "Coming Soon",
         disabled: true,
       ),
-      const _ServiceItem(
+      _ServiceItem(
         icon: Icons.airport_shuttle_rounded,
         title: "Request Ambulance",
-        description: "Request immediate emergency medical transportation.",
-        color: Color(0xFFDC2626),
-        actionLabel: "Coming Soon",
-        disabled: true,
+        description: ambulanceEnabled
+            ? "Request immediate emergency medical transportation."
+            : "Ambulance request testing is available in debug or developer mode only.",
+        color: const Color(0xFFDC2626),
+        actionLabel: ambulanceEnabled ? "Request Now" : "Testing Only",
+        disabled: !ambulanceEnabled,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RequestAmbulance()),
+        ),
       ),
     ];
 
