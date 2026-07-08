@@ -32,11 +32,15 @@ class SupabaseUtility {
   }
 
   String getGoogleOauthClientId() {
-    return "119197520855-5jfgv88a307tsdue92q35jfoq0et2q35.apps.googleusercontent.com";
+    return "815692412145-1797k9dnea57qrbl80qs0q9okfs4s4oe.apps.googleusercontent.com";
+  }
+
+  String getGoogleAndroidClientId() {
+    return "815692412145-1fsro429pbdevqlqqpb97dho5tnos8k8.apps.googleusercontent.com";
   }
 
   String getGoogleIOSClientId() {
-    return "119197520855-u9ho51f085537s2m2kgtv5ugt3ie49d6.apps.googleusercontent.com";
+    return "815692412145-psq4eedm9kpedeofspgqs4qiloari1j2.apps.googleusercontent.com";
   }
 
   String getSchema() {
