@@ -38,9 +38,12 @@ void onStart(ServiceInstance service) async {
 
   const AndroidInitializationSettings initializationSettingsAndroid =
       AndroidInitializationSettings('@drawable/aga_gasan_app_logo_rounded');
+  const DarwinInitializationSettings initializationSettingsDarwin =
+      DarwinInitializationSettings();
 
   const InitializationSettings initializationSettings = InitializationSettings(
     android: initializationSettingsAndroid,
+    iOS: initializationSettingsDarwin,
   );
 
   await localNotifications.initialize(settings: initializationSettings);
@@ -870,6 +873,11 @@ Future<void> _showNotification(
           ongoing: false,
           autoCancel: true,
         ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
       ),
     );
   } catch (error) {
@@ -897,6 +905,11 @@ Future<void> _showLimitedNotification(
           ticker: 'ticker',
           ongoing: false,
           autoCancel: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
         ),
       ),
     );
@@ -929,6 +942,11 @@ Future<void> _showSellerOrderNotification(
           autoCancel: true,
           onlyAlertOnce: true,
         ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
       ),
     );
   } catch (error) {
@@ -958,6 +976,11 @@ Future<void> _showChatNotification(
           ticker: 'New message',
           ongoing: false,
           autoCancel: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
         ),
       ),
     );
@@ -989,6 +1012,11 @@ Future<void> _showUserOrderNotification(
           ticker: 'Order update',
           ongoing: false,
           autoCancel: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
         ),
       ),
     );
@@ -1078,6 +1106,18 @@ class NotificationBackgroundService {
     final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
         FlutterLocalNotificationsPlugin();
 
+    const InitializationSettings initializationSettings =
+        InitializationSettings(
+          android: AndroidInitializationSettings(
+            '@drawable/aga_gasan_app_logo_rounded',
+          ),
+          iOS: DarwinInitializationSettings(),
+        );
+
+    await flutterLocalNotificationsPlugin.initialize(
+      settings: initializationSettings,
+    );
+
     await flutterLocalNotificationsPlugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -1116,6 +1156,11 @@ class NotificationBackgroundService {
             AndroidFlutterLocalNotificationsPlugin
           >()
           ?.requestNotificationsPermission();
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
     } catch (_) {}
 
     await _service.configure(

@@ -322,7 +322,7 @@ class _RequestAmbulanceState extends State<RequestAmbulance> {
                 ),
                 SizedBox(height: 6),
                 Text(
-                  'For patient or deceased transport coordination. This form is currently enabled for debug testing.',
+                  'Submit transport details so the response team can review and coordinate the request.',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 13,
@@ -341,7 +341,7 @@ class _RequestAmbulanceState extends State<RequestAmbulance> {
   Widget _yourDetailsSection() {
     return _section(
       title: 'Your Details',
-      subtitle: 'Requester information for contact and verification.',
+      subtitle: 'Provide your contact details so responders can reach you quickly.',
       icon: Icons.person_rounded,
       children: [
         _responsiveFields([
@@ -370,7 +370,7 @@ class _RequestAmbulanceState extends State<RequestAmbulance> {
   Widget _transportSection() {
     return _section(
       title: 'Transport Information',
-      subtitle: 'Tell responders what kind of transport is needed.',
+      subtitle: 'Identify the patient or deceased person and the type of assistance needed.',
       icon: Icons.medical_services_rounded,
       children: [
         _choiceGroup(),
@@ -397,8 +397,7 @@ class _RequestAmbulanceState extends State<RequestAmbulance> {
   Widget _addressSection() {
     return _section(
       title: 'Pickup Address',
-      subtitle:
-          'Location lists are loaded from the Philippine PSGC public API.',
+      subtitle: 'Select the pickup location to help the team find the correct area.',
       icon: Icons.location_on_rounded,
       children: [
         _responsiveFields([
@@ -439,7 +438,7 @@ class _RequestAmbulanceState extends State<RequestAmbulance> {
   Widget _detailsSection() {
     return _section(
       title: 'Tell More About It',
-      subtitle: 'Add the important context dispatchers should know.',
+      subtitle: 'Include condition, landmarks, destination, urgency, and special instructions.',
       icon: Icons.notes_rounded,
       children: [
         TextFormField(

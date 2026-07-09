@@ -35,13 +35,23 @@ class OrderNotificationService {
     if (_initialized) return;
     _initialized = true;
     const init = InitializationSettings(
-      android: AndroidInitializationSettings('@drawable/aga_gasan_app_logo_rounded'),
+      android: AndroidInitializationSettings(
+        '@drawable/aga_gasan_app_logo_rounded',
+      ),
+      iOS: DarwinInitializationSettings(),
     );
     await _local.initialize(settings: init);
     try {
       await _local
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
           ?.requestNotificationsPermission();
+      await _local
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
     } catch (_) {}
   }
 
@@ -49,7 +59,9 @@ class OrderNotificationService {
     if (userId.isEmpty) return;
     await _ensureInit();
     final alreadyActive =
-        _activeUserId == userId && _userChannel != null && _sellerChannel != null;
+        _activeUserId == userId &&
+        _userChannel != null &&
+        _sellerChannel != null;
     if (alreadyActive && !force) return;
 
     _activeUserId = userId;
@@ -108,7 +120,9 @@ class OrderNotificationService {
 
               final newStatus = newRecord['order_status']?.toString() ?? '';
               final oldStatus = oldRecord['order_status']?.toString() ?? '';
-              Utility().printLog('user order update: $rowUserId  $oldStatus -> $newStatus');
+              Utility().printLog(
+                'user order update: $rowUserId  $oldStatus -> $newStatus',
+              );
               if (newStatus.isEmpty) return;
               // If old status is missing (REPLICA IDENTITY DEFAULT), we still
               // notify — dedupe via the seen key below prevents duplicates.
@@ -158,8 +172,8 @@ class OrderNotificationService {
             },
           )
           .subscribe((status, [error]) {
-        Utility().printLog('user orders channel: $status ${error ?? ''}');
-      });
+            Utility().printLog('user orders channel: $status ${error ?? ''}');
+          });
     } catch (e) {
       Utility().printLog('user orders subscribe error: $e');
     }
@@ -199,7 +213,8 @@ class OrderNotificationService {
               await _show(
                 channelId: 'seller_order_alerts',
                 channelName: 'New Orders',
-                channelDescription: 'Alerts when your shop receives a new order.',
+                channelDescription:
+                    'Alerts when your shop receives a new order.',
                 id: orderId.hashCode,
                 title: 'New order placed',
                 body: body,
@@ -207,8 +222,8 @@ class OrderNotificationService {
             },
           )
           .subscribe((status, [error]) {
-        Utility().printLog('seller orders channel: $status ${error ?? ''}');
-      });
+            Utility().printLog('seller orders channel: $status ${error ?? ''}');
+          });
     } catch (e) {
       Utility().printLog('seller orders subscribe error: $e');
     }
@@ -238,7 +253,8 @@ class OrderNotificationService {
               final seenKey = 'seen_chat_msg_$messageId';
               final prefs = await SharedPreferences.getInstance();
               await prefs.reload();
-              if (messageId.isNotEmpty && prefs.getBool(seenKey) == true) return;
+              if (messageId.isNotEmpty && prefs.getBool(seenKey) == true)
+                return;
 
               // Suppress when already viewing this conversation (mark seen so the
               // background isolate doesn't fire a notification for it either).
@@ -255,13 +271,16 @@ class OrderNotificationService {
                   .eq('conversation_id', convId)
                   .maybeSingle();
               if (conv == null) return;
-              final isBuyer = conv['conversation_buyer_id']?.toString() == userId;
-              final isSeller = _activeSellerId != null &&
+              final isBuyer =
+                  conv['conversation_buyer_id']?.toString() == userId;
+              final isSeller =
+                  _activeSellerId != null &&
                   conv['conversation_seller_id']?.toString() == _activeSellerId;
               if (!isBuyer && !isSeller) return;
 
               if (messageId.isNotEmpty) await prefs.setBool(seenKey, true);
-              final body = (r['message_body']?.toString().trim().isNotEmpty ?? false)
+              final body =
+                  (r['message_body']?.toString().trim().isNotEmpty ?? false)
                   ? r['message_body'].toString()
                   : '📷 Photo';
               await _show(
@@ -275,8 +294,8 @@ class OrderNotificationService {
             },
           )
           .subscribe((status, [error]) {
-        Utility().printLog('chat messages channel: $status ${error ?? ''}');
-      });
+            Utility().printLog('chat messages channel: $status ${error ?? ''}');
+          });
     } catch (e) {
       Utility().printLog('chat messages subscribe error: $e');
     }
@@ -304,6 +323,11 @@ class OrderNotificationService {
             priority: Priority.max,
             icon: '@drawable/aga_gasan_app_logo_rounded',
             ticker: title,
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: true,
+            presentSound: true,
           ),
         ),
       );

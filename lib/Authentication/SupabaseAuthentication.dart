@@ -28,9 +28,7 @@ class SupabaseAuthentication {
       if (kIsWeb) {
         Utility().printLog('Starting Supabase Web OAuth Flow...');
 
-        final String redirectUrl = kDebugMode
-            ? 'http://localhost:3000'
-            : 'https://aga-app.gasan.workers.dev/';
+        final String redirectUrl = Uri.base.origin;
 
         await supabase.auth.signInWithOAuth(
           OAuthProvider.google,

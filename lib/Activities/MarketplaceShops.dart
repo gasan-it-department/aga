@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:gasan_port_tracker/Activities/Chat/ChatInbox.dart';
 import 'package:gasan_port_tracker/Activities/MyCart.dart';
 import 'package:gasan_port_tracker/Activities/ViewShop.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
@@ -148,6 +149,14 @@ class _MarketplaceShopsState extends State<MarketplaceShops> {
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Messages',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ChatInbox()),
+            ),
+            icon: const Icon(Icons.chat_bubble_outline_rounded),
+          ),
           IconButton(
             tooltip: 'Cart',
             onPressed: () => Navigator.push(

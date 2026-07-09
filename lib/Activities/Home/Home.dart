@@ -8,6 +8,7 @@ import 'package:gasan_port_tracker/Database/SupabaseUtility.dart';
 import 'package:gasan_port_tracker/Activities/Maritime/ViewShippingLinesDetails.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:gasan_port_tracker/Services/BackgroundService.dart';
+import 'package:gasan_port_tracker/Services/OrderNotificationService.dart';
 import 'package:gasan_port_tracker/Services/WebPushNotificationService.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:gasan_port_tracker/Activities/AccountStatus/AccountStatusScreen.dart';
@@ -184,6 +185,15 @@ class _HomeState extends State<Home> {
 
     final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
         FlutterLocalNotificationsPlugin();
+    const initializationSettings = InitializationSettings(
+      android: AndroidInitializationSettings(
+        '@drawable/aga_gasan_app_logo_rounded',
+      ),
+      iOS: DarwinInitializationSettings(),
+    );
+    await flutterLocalNotificationsPlugin.initialize(
+      settings: initializationSettings,
+    );
     bool permissionGranted = false;
 
     if (Platform.isAndroid) {
@@ -450,6 +460,7 @@ class _HomeState extends State<Home> {
         _authenticateExternalApi();
         if (!kIsWeb && session != null) {
           await NotificationBackgroundService().setAuthenticatedUser(session);
+          await OrderNotificationService.instance.start(_userId);
         }
         if (!mounted) return;
         WebPushNotificationService.instance.initializeForUser(_userId);
@@ -487,7 +498,6 @@ class _HomeState extends State<Home> {
           ),
         );
       }
-
     } catch (error, stackTrace) {
       if (mounted) _loadingDialog.dismiss();
       _showError(

@@ -26,8 +26,24 @@ class SupabaseExternalAuthBridge {
       '$_baseUrl/api/v1/community-reports/submission-context';
   static String get _communityReportsEndpoint =>
       '$_baseUrl/api/v1/community-reports';
+  static String get _supportTicketsEndpoint =>
+      '$_baseUrl/api/v1/support-tickets';
   static String get _announcementsEndpoint => '$_baseUrl/api/v1/announcements';
   static String get _eventsEndpoint => '$_baseUrl/api/v1/events';
+
+  static String resolveAssetUrl(String value) {
+    final trimmed = value.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('//')) {
+      return 'https:$trimmed';
+    }
+    if (trimmed.startsWith('/')) {
+      return '$_baseUrl$trimmed';
+    }
+    return '$_baseUrl/$trimmed';
+  }
 
   Future<http.Response> authenticate({
     String deviceName = 'AGA Android App',
@@ -196,6 +212,101 @@ class SupabaseExternalAuthBridge {
     return response;
   }
 
+  Future<http.Response> getSupportTicketSubmissionContext() async {
+    final token = await _requireLaravelToken();
+
+    final response = await http.get(
+      Uri.parse('$_supportTicketsEndpoint/submission-context'),
+      headers: _laravelHeaders(token),
+    );
+
+    Utility().printLog(
+      'Support ticket submission context status: ${response.statusCode}',
+    );
+    Utility().printLog(
+      'Support ticket submission context body: ${response.body}',
+    );
+    return response;
+  }
+
+  Future<http.Response> getSupportTickets({
+    int page = 1,
+    int perPage = 10,
+  }) async {
+    final token = await _requireLaravelToken();
+    final uri = Uri.parse(_supportTicketsEndpoint).replace(
+      queryParameters: {
+        'page': page.clamp(1, 999999).toString(),
+        'per_page': perPage.clamp(1, 100).toString(),
+      },
+    );
+
+    final response = await http.get(uri, headers: _laravelHeaders(token));
+
+    Utility().printLog('Support tickets status: ${response.statusCode}');
+    Utility().printLog('Support tickets body: ${response.body}');
+    return response;
+  }
+
+  Future<http.Response> submitSupportTicket(
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _requireLaravelToken();
+
+    final response = await http.post(
+      Uri.parse(_supportTicketsEndpoint),
+      headers: _laravelHeaders(token, jsonBody: true),
+      body: jsonEncode(payload),
+    );
+
+    Utility().printLog('Support ticket submit status: ${response.statusCode}');
+    Utility().printLog('Support ticket submit body: ${response.body}');
+    return response;
+  }
+
+  Future<http.Response> getSupportTicketDetails(String supportTicket) async {
+    final token = await _requireLaravelToken();
+
+    final response = await http.get(
+      Uri.parse('$_supportTicketsEndpoint/$supportTicket'),
+      headers: _laravelHeaders(token),
+    );
+
+    Utility().printLog('Support ticket details status: ${response.statusCode}');
+    Utility().printLog('Support ticket details body: ${response.body}');
+    return response;
+  }
+
+  Future<http.Response> replySupportTicket(
+    String supportTicket,
+    Map<String, dynamic> payload,
+  ) async {
+    final token = await _requireLaravelToken();
+
+    final response = await http.post(
+      Uri.parse('$_supportTicketsEndpoint/$supportTicket/replies'),
+      headers: _laravelHeaders(token, jsonBody: true),
+      body: jsonEncode(payload),
+    );
+
+    Utility().printLog('Support ticket reply status: ${response.statusCode}');
+    Utility().printLog('Support ticket reply body: ${response.body}');
+    return response;
+  }
+
+  Future<http.Response> reopenSupportTicket(String supportTicket) async {
+    final token = await _requireLaravelToken();
+
+    final response = await http.post(
+      Uri.parse('$_supportTicketsEndpoint/$supportTicket/reopen'),
+      headers: _laravelHeaders(token),
+    );
+
+    Utility().printLog('Support ticket reopen status: ${response.statusCode}');
+    Utility().printLog('Support ticket reopen body: ${response.body}');
+    return response;
+  }
+
   Future<http.Response> getAnnouncements({
     int page = 1,
     int perPage = 10,
@@ -294,6 +405,27 @@ class SupabaseExternalAuthBridge {
 
   Future<String?> getCurrentToken() {
     return _secureStorage.read(key: _currentTokenKey);
+  }
+
+  Future<String> _requireLaravelToken() async {
+    final token =
+        await _secureStorage.read(key: _laravelSanctumTokenKey) ??
+        await getCurrentToken();
+
+    if (token == null || token.isEmpty) {
+      throw Exception('No Laravel Sanctum token found.');
+    }
+
+    return token;
+  }
+
+  Map<String, String> _laravelHeaders(String token, {bool jsonBody = false}) {
+    return {
+      'Accept': 'application/json',
+      if (jsonBody) 'Content-Type': 'application/json',
+      'Authorization': 'Bearer $token',
+      'X-Municipality-Slug': 'gasan-4905',
+    };
   }
 
   Future<String?> getTokenForUser(String userId) {

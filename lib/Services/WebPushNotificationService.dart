@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:universal_html/html.dart' as html;
 import 'package:universal_html/js.dart' as js;
@@ -18,9 +19,16 @@ class WebPushNotificationService {
   String? _currentUserId;
   String? _currentToken;
   StreamSubscription<String>? _tokenRefreshSubscription;
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
 
   Future<void> initializeForUser(String userId) async {
-    if (!kIsWeb || userId.isEmpty) return;
+    if (userId.isEmpty) return;
+
+    if (!kIsWeb) {
+      await _initializeMobileForUser(userId);
+      return;
+    }
 
     try {
       if (vapidKey.length < 80 || !vapidKey.startsWith('B')) {
@@ -95,6 +103,83 @@ class WebPushNotificationService {
     }
   }
 
+  Future<void> _initializeMobileForUser(String userId) async {
+    try {
+      if (!_initialized) {
+        if (Firebase.apps.isEmpty) {
+          await Firebase.initializeApp();
+        }
+        const settings = InitializationSettings(
+          android: AndroidInitializationSettings(
+            '@drawable/aga_gasan_app_logo_rounded',
+          ),
+          iOS: DarwinInitializationSettings(),
+        );
+        await _localNotifications.initialize(settings: settings);
+        FirebaseMessaging.onMessage.listen((message) {
+          final title =
+              message.notification?.title ?? message.data['title'] ?? 'AGA';
+          final body =
+              message.notification?.body ??
+              message.data['body'] ??
+              'You have a new notification.';
+          _localNotifications.show(
+            id: (message.messageId ?? DateTime.now().toIso8601String())
+                .hashCode,
+            title: title,
+            body: body,
+            notificationDetails: const NotificationDetails(
+              android: AndroidNotificationDetails(
+                'high_priority_alerts',
+                'Notifications',
+                importance: Importance.max,
+                priority: Priority.max,
+                icon: '@drawable/aga_gasan_app_logo_rounded',
+              ),
+              iOS: DarwinNotificationDetails(
+                presentAlert: true,
+                presentBadge: true,
+                presentSound: true,
+              ),
+            ),
+          );
+        });
+        _initialized = true;
+      }
+
+      final messaging = FirebaseMessaging.instance;
+      final permission = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      if (permission.authorizationStatus == AuthorizationStatus.denied) return;
+
+      final token = await messaging.getToken();
+      if (token == null || token.isEmpty) return;
+
+      _currentUserId = userId;
+      _currentToken = token;
+      await _saveToken(userId, token);
+
+      await _tokenRefreshSubscription?.cancel();
+      _tokenRefreshSubscription = messaging.onTokenRefresh.listen(
+        (token) {
+          final activeUserId = _currentUserId;
+          if (activeUserId == null || activeUserId.isEmpty) return;
+          _currentToken = token;
+          _saveToken(activeUserId, token);
+        },
+        onError: (error) =>
+            debugPrint('Mobile FCM token refresh failed: $error'),
+      );
+      debugPrint('Mobile FCM token registered for user $userId.');
+    } catch (error, stackTrace) {
+      debugPrint('Mobile push registration failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
   Future<void> _saveToken(String userId, String token) async {
     final db = Supabase.instance.client;
     final row = await db
@@ -113,7 +198,6 @@ class WebPushNotificationService {
   }
 
   Future<void> unregisterCurrentUser() async {
-    if (!kIsWeb) return;
     final userId =
         _currentUserId ?? Supabase.instance.client.auth.currentUser?.id ?? '';
     if (userId.isEmpty) return;
@@ -121,7 +205,10 @@ class WebPushNotificationService {
     try {
       final messaging = FirebaseMessaging.instance;
       final token =
-          _currentToken ?? await messaging.getToken(vapidKey: vapidKey);
+          _currentToken ??
+          (kIsWeb
+              ? await messaging.getToken(vapidKey: vapidKey)
+              : await messaging.getToken());
       if (token != null && token.isNotEmpty) {
         final db = Supabase.instance.client;
         final row = await db

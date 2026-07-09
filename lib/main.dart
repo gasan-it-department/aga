@@ -93,6 +93,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
     List<Permission> permissionsToRequest = [
       Permission.location,
+      Permission.locationAlways,
       Permission.notification,
     ];
 
@@ -143,9 +144,8 @@ class _SplashScreenState extends State<SplashScreen> {
 
       if (status.isDenied || status.isPermanentlyDenied) {
         Utility().printLog(
-          "Notification permission denied by user. Background service skipped.",
+          "Notification permission denied by user. Background notifications may be limited.",
         );
-        return;
       }
 
       final bgService = NotificationBackgroundService();
@@ -175,7 +175,8 @@ class _SplashScreenState extends State<SplashScreen> {
     String? providerId;
     for (final identity in user.identities ?? []) {
       final data = identity.identityData;
-      providerId = data?['provider_id']?.toString() ??
+      providerId =
+          data?['provider_id']?.toString() ??
           data?['sub']?.toString() ??
           identity.id;
       if (providerId != null && providerId.isNotEmpty) break;

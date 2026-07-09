@@ -9,6 +9,7 @@ import 'package:gasan_port_tracker/Dialogs/LoadingDialog.dart';
 import 'package:gasan_port_tracker/Dialogs/ClassicDialog.dart';
 import 'package:gasan_port_tracker/Activities/LoginSignup.dart';
 import 'package:gasan_port_tracker/Activities/About.dart';
+import 'package:gasan_port_tracker/Activities/support_tickets.dart';
 import 'package:gasan_port_tracker/Authentication/SupabaseAuthentication.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gasan_port_tracker/Utility/Municipalities.dart';
@@ -528,6 +529,21 @@ class _MyAccountState extends State<MyAccount> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(builder: (_) => const FAQ()),
+                              );
+                            },
+                          ),
+
+                          _buildDivider(),
+
+                          _buildSettingsTile(
+                            icon: Icons.bug_report_outlined,
+                            label: "Report Bugs & Errors",
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const SupportTickets(),
+                                ),
                               );
                             },
                           ),

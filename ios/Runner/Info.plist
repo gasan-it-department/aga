@@ -24,6 +24,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.flutter.background.refresh</string>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -31,7 +35,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.815692412145-psq4eedm9kpedeofspgqs4qiloari1j2</string>
+				<string>com.googleusercontent.apps.119197520855-u9ho51f085537s2m2kgtv5ugt3ie49d6</string>
 			</array>
 		</dict>
 	</array>

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:gasan_port_tracker/Utility/CommunityReportStatusStyle.dart';
+import 'package:gasan_port_tracker/Utility/ImageViewer.dart';
 import 'package:gasan_port_tracker/Utility/SupabaseExternalAuthBridge.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 
@@ -322,23 +323,40 @@ class _CommunityReportDetailsState extends State<CommunityReportDetails> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: photos.map((url) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: Image.network(
-            url,
-            width: 96,
-            height: 96,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => Container(
-              width: 96,
-              height: 96,
-              color: const Color(0xFFE2E8F0),
-              child: Icon(Icons.broken_image_rounded, color: _muted),
+      children: List.generate(photos.length, (index) {
+        final url = photos[index];
+        return GestureDetector(
+          onTap: () => _openImageViewer(photos, index),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Hero(
+              tag: 'hero_$url',
+              child: Image.network(
+                url,
+                width: 96,
+                height: 96,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 96,
+                  height: 96,
+                  color: const Color(0xFFE2E8F0),
+                  child: Icon(Icons.broken_image_rounded, color: _muted),
+                ),
+              ),
             ),
           ),
         );
-      }).toList(),
+      }),
+    );
+  }
+
+  void _openImageViewer(List<String> photos, int index) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            ImageViewer(imageUrls: photos, initialIndex: index),
+      ),
     );
   }
 
@@ -473,21 +491,64 @@ class _CommunityReportDetailsState extends State<CommunityReportDetails> {
   ) {
     final value =
         details['photos'] ??
+        details['evidence_photos'] ??
+        details['attachments'] ??
+        details['images'] ??
         report['evidence_photos'] ??
         report['photos'] ??
+        report['attachments'] ??
+        report['images'] ??
         report['ticket_images'];
-    if (value is List) return value.map((item) => item.toString()).toList();
+    if (value is List) {
+      return value
+          .map(_photoUrl)
+          .whereType<String>()
+          .where((url) => url.trim().isNotEmpty)
+          .toList();
+    }
     if (value is String && value.trim().isNotEmpty) {
       try {
         final decoded = jsonDecode(value);
         if (decoded is List) {
-          return decoded.map((item) => item.toString()).toList();
+          return decoded
+              .map(_photoUrl)
+              .whereType<String>()
+              .where((url) => url.trim().isNotEmpty)
+              .toList();
         }
+        final url = _photoUrl(decoded);
+        if (url != null) return [url];
       } catch (_) {
-        return [value];
+        final url = _photoUrl(value);
+        if (url != null) return [url];
       }
     }
     return const [];
+  }
+
+  String? _photoUrl(dynamic item) {
+    if (item == null) return null;
+    if (item is Map) {
+      for (final key in [
+        'url',
+        'full_url',
+        'public_url',
+        'path',
+        'file',
+        'file_path',
+        'image',
+        'photo',
+      ]) {
+        final value = item[key];
+        if (value != null && value.toString().trim().isNotEmpty) {
+          return SupabaseExternalAuthBridge.resolveAssetUrl(value.toString());
+        }
+      }
+      return null;
+    }
+    final value = item.toString().trim();
+    if (value.isEmpty) return null;
+    return SupabaseExternalAuthBridge.resolveAssetUrl(value);
   }
 
   List<Map<String, dynamic>> _readTimeline(Map<String, dynamic> details) {
