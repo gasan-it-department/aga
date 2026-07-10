@@ -40,7 +40,7 @@ class SupabaseUtility {
   }
 
   String getGoogleIOSClientId() {
-    return "119197520855-u9ho51f085537s2m2kgtv5ugt3ie49d6.apps.googleusercontent.com";
+    return "815692412145-psq4eedm9kpedeofspgqs4qiloari1j2.apps.googleusercontent.com";
   }
 
   String getSchema() {
