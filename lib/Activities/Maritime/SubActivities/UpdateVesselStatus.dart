@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -20,6 +19,7 @@ class UpdateVesselStatus extends StatefulWidget {
   final String? originId;
   final String? destinationId;
   final int? onboardingDuration;
+  final String? dockedState;
 
   const UpdateVesselStatus({
     super.key,
@@ -29,6 +29,7 @@ class UpdateVesselStatus extends StatefulWidget {
     this.originId,
     this.destinationId,
     this.onboardingDuration,
+    this.dockedState,
   });
 
   @override
@@ -48,7 +49,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   final _imagePicker = ImagePicker();
 
   XFile? _finalCapturedImage;
-  StateSetter? _dateAndTimeStateSetter;
 
   // Flow control
   String _currentStatus = 'Docked';
@@ -59,15 +59,20 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   String? _originPortId;
   String? _destinationPortId;
 
-  final TextEditingController _onboardingDurationController =
+  final TextEditingController _noScheduleReasonController =
       TextEditingController();
+  final TextEditingController _statusNoteController = TextEditingController();
+  final TextEditingController _timerMinutesController = TextEditingController();
+  String _weatherCondition = 'moderate';
+  String _passengerLevel = 'medium';
+  String _dockedState = 'docked';
+  double _timerMinutes = 45;
 
   List<Map<String, dynamic>> _availablePorts = [];
   bool _isLoadingPorts = true;
   bool _isUploading = false;
 
-  DateTime _currentTime = DateTime.now();
-  Timer? _clockTimer;
+  final DateTime _currentTime = DateTime.now();
 
   SharedPreferences? _preferences;
   static const List<String> _statusFlow = [
@@ -81,49 +86,103 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   void initState() {
     super.initState();
 
-    _currentStatus = widget.currentStatus ?? 'Docked';
+    _currentStatus = _statusLabel(widget.currentStatus ?? 'docked');
+    _dockedState = widget.dockedState ?? 'docked';
+    final month = DateTime.now().month;
+    if (month == 11 || month == 12) {
+      _passengerLevel = 'heavy';
+    } else if (month == 9) {
+      _passengerLevel = 'medium';
+    }
 
     // Normalize status casing
-    if (_currentStatus.isNotEmpty) {
-      _currentStatus =
-          _currentStatus[0].toUpperCase() +
-          _currentStatus.substring(1).toLowerCase();
-    }
-
-    // Determine the next step in the flow automatically
     _determineNextStatus();
-
-    if (widget.onboardingDuration != null && widget.onboardingDuration! > 0) {
-      _onboardingDurationController.text = widget.onboardingDuration.toString();
-    }
+    _resetTimerForStatus();
 
     _initPrefs();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fetchPorts();
-      _clockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-        if (mounted) {
-          _dateAndTimeStateSetter?.call(() {
-            _currentTime = DateTime.now();
-          });
-        }
-      });
     });
   }
 
   void _determineNextStatus() {
+    if (_statusCode(_currentStatus) == 'no_schedule') {
+      _selectedStatus = 'Docked';
+      return;
+    }
     final currentStepIndex = _flowIndexForStatus(_currentStatus);
     final nextStepIndex = (currentStepIndex + 1) % _statusFlow.length;
     _selectedStatus = _statusFlow[nextStepIndex];
   }
 
   int _flowIndexForStatus(String status) {
-    final statusLower = status.toLowerCase().trim();
+    final statusLower = _statusCode(status);
     if (statusLower == 'docked') return 0;
     final index = _statusFlow.indexWhere(
       (step) => step.toLowerCase() == statusLower,
     );
     return index < 0 ? 0 : index;
+  }
+
+  String _statusCode(String status) {
+    return status.toLowerCase().trim().replaceAll(' ', '_');
+  }
+
+  String _statusLabel(String status) {
+    return _statusCode(status)
+        .split('_')
+        .map(
+          (word) => word.isEmpty
+              ? word
+              : '${word[0].toUpperCase()}${word.substring(1)}',
+        )
+        .join(' ');
+  }
+
+  String _currentStatusLabel() {
+    if (_statusCode(_currentStatus) == 'docked' && _dockedState != 'docked') {
+      return 'Docked | ${_dockedState == 'tba' ? 'TBA' : 'Preparing'}';
+    }
+    return _currentStatus;
+  }
+
+  ({double minimum, double maximum, double initial}) _timerSettings() {
+    switch (_statusCode(_selectedStatus)) {
+      case 'docked':
+        return (minimum: 30, maximum: 60, initial: 45);
+      case 'onboarding':
+        return (minimum: 60, maximum: 120, initial: 90);
+      case 'departed':
+        final initial = switch (_weatherCondition) {
+          'good' => 165.0,
+          'rough' => 210.0,
+          _ => 185.0,
+        };
+        return (minimum: 165, maximum: 210, initial: initial);
+      default:
+        return (minimum: 0, maximum: 0, initial: 0);
+    }
+  }
+
+  void _resetTimerForStatus() {
+    final settings = _timerSettings();
+    _timerMinutes = settings.initial;
+    _timerMinutesController.text = _timerMinutes.round().toString();
+  }
+
+  void _setTimerMinutes(double value) {
+    final settings = _timerSettings();
+    final adjusted = value.clamp(settings.minimum, settings.maximum);
+    setState(() {
+      _timerMinutes = adjusted;
+      _timerMinutesController.text = adjusted.round().toString();
+    });
+  }
+
+  void _validateTimerInput() {
+    final value = double.tryParse(_timerMinutesController.text.trim());
+    _setTimerMinutes(value ?? _timerSettings().initial);
   }
 
   Future<void> _initPrefs() async {
@@ -156,7 +215,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
           }
 
           // If transitioning from Departed to Docked, destinationPortId becomes the new docked location
-          if (_currentStatus.toLowerCase() == 'departed' &&
+          if (['departed', 'arrived'].contains(_statusCode(_currentStatus)) &&
               _destinationPortId != null) {
             _currentPortId = _destinationPortId;
           }
@@ -170,8 +229,9 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
 
   @override
   void dispose() {
-    _clockTimer?.cancel();
-    _onboardingDurationController.dispose();
+    _noScheduleReasonController.dispose();
+    _statusNoteController.dispose();
+    _timerMinutesController.dispose();
     super.dispose();
   }
 
@@ -268,13 +328,15 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   }
 
   Future<void> _submitStatusUpdate() async {
-    final String statusLower = _selectedStatus.toLowerCase();
+    final String statusLower = _statusCode(_selectedStatus);
     final bool isRouteStatus =
         statusLower == 'departed' ||
         statusLower == 'arrived' ||
         statusLower == 'onboarding';
-    final bool isOnboarding = statusLower == 'onboarding';
-    final bool isStandby = statusLower == 'standby';
+
+    if (['docked', 'onboarding', 'departed'].contains(statusLower)) {
+      _validateTimerInput();
+    }
 
     if (_finalCapturedImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -296,25 +358,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         );
         return;
       }
-    } else if (isStandby) {
-      if (_currentPortId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Please select a Current Location port."),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        return;
-      }
-      if (_destinationPortId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Please select a Destination port for standby."),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        return;
-      }
     } else {
       if (_currentPortId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -327,125 +370,178 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
       }
     }
 
-    if (isOnboarding) {
-      final String durationText = _onboardingDurationController.text.trim();
-      if (durationText.isEmpty ||
-          int.tryParse(durationText) == null ||
-          int.parse(durationText) <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Please enter a valid onboarding duration in minutes.",
-            ),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        return;
-      }
+    if (statusLower == 'no_schedule' &&
+        _noScheduleReasonController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("A reason is required when there is no schedule."),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
     }
 
     setState(() => _isUploading = true);
 
     try {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) throw 'An authenticated administrator is required.';
+
       final vesselData = await supabase
           .from('vessels')
-          .select('vessel_status')
+          .select('shipping_line_id, vessel_operations(*)')
           .eq('vessel_id', widget.vesselId)
           .single();
+      final operations = List<Map<String, dynamic>>.from(
+        vesselData['vessel_operations'] as List? ?? const [],
+      );
+      final activeOperations = operations
+          .where((item) => item['completed_at'] == null)
+          .toList();
+      final activeOperation = activeOperations.isEmpty
+          ? null
+          : activeOperations.first;
 
-      String? oldImageUrl;
-      if (vesselData['vessel_status'] != null) {
-        final dynamic statusData = vesselData['vessel_status'];
-        if (statusData is Map && statusData['image_proof'] != null) {
-          oldImageUrl = statusData['image_proof'].toString();
-        }
+      Map<String, dynamic>? routeProfile;
+      if (_originPortId != null && _destinationPortId != null) {
+        routeProfile = await supabase
+            .from('shipping_line_route_profiles')
+            .select()
+            .eq('shipping_line_id', vesselData['shipping_line_id'])
+            .eq('origin_port_id', _originPortId!)
+            .eq('destination_port_id', _destinationPortId!)
+            .eq('is_active', true)
+            .limit(1)
+            .maybeSingle();
       }
 
-      const String bucketName = 'images';
-      if (oldImageUrl != null && oldImageUrl.isNotEmpty) {
-        try {
-          Uri uri = Uri.parse(oldImageUrl);
-          String pathToRemove = uri.pathSegments.last;
-          await supabase.storage.from(bucketName).remove([pathToRemove]);
-          debugPrint("Old image deleted: $pathToRemove");
-        } catch (e) {
-          debugPrint("Failed to delete old image, continuing upload... $e");
-        }
+      int routeMinutes(String key, int fallback) {
+        return int.tryParse(routeProfile?[key]?.toString() ?? '') ?? fallback;
       }
 
       final String fileExt = _finalCapturedImage!.name.split('.').last;
+      final now = DateTime.now().toUtc();
       final String fileName =
-          '${widget.vesselId}_${DateTime.now().millisecondsSinceEpoch}.$fileExt';
+          '${widget.vesselId}/${now.millisecondsSinceEpoch}.$fileExt';
       final Uint8List fileBytes = await _finalCapturedImage!.readAsBytes();
 
       await supabase.storage
-          .from(bucketName)
+          .from('vessel-status-proofs')
           .uploadBinary(
             fileName,
             fileBytes,
-            fileOptions: const FileOptions(upsert: true),
+            fileOptions: const FileOptions(upsert: false),
           );
 
-      final String newImageUrl = supabase.storage
-          .from(bucketName)
-          .getPublicUrl(fileName);
-
-      int nowEpoch = DateTime.now().millisecondsSinceEpoch;
-      int departedEpoch = 0;
-      int arrivalEpoch = 0;
-
-      if (statusLower == 'departed') {
-        departedEpoch = nowEpoch;
-      }
-      if (statusLower == 'docked' || statusLower == 'arrived') {
-        arrivalEpoch = nowEpoch;
-      }
-
-      int onboardingDurationMins = 0;
-      if (isOnboarding) {
-        onboardingDurationMins =
-            int.tryParse(_onboardingDurationController.text.trim()) ?? 0;
-      }
-
       String? trueOrigin = isRouteStatus ? _originPortId : _currentPortId;
-      String? trueDestination = (isRouteStatus || isStandby)
+      String? trueDestination = isRouteStatus ? _destinationPortId : null;
+      String? currentPort = statusLower == 'arrived'
           ? _destinationPortId
-          : null;
+          : trueOrigin;
 
-      // When arrived, destination becomes the new starting origin, and destination is reset to null
-      if (statusLower == 'arrived' || statusLower == 'docked') {
-        trueOrigin = _destinationPortId ?? _originPortId ?? _currentPortId;
-        trueDestination = null;
+      DateTime? earliest;
+      DateTime? latest;
+      DateTime? boardingCloses;
+      if ((statusLower == 'docked' && _dockedState == 'preparing') ||
+          statusLower == 'onboarding') {
+        earliest = now.add(Duration(minutes: _timerMinutes.round()));
+        latest = earliest;
+      }
+      if (statusLower == 'onboarding') {
+        boardingCloses = latest!.subtract(
+          Duration(minutes: routeMinutes('boarding_close_buffer_minutes', 15)),
+        );
+      } else if (statusLower == 'departed') {
+        earliest = now.add(Duration(minutes: _timerMinutes.round()));
+        latest = earliest;
       }
 
-      Map<String, dynamic> statusUpdateJson = {
-        "origin": trueOrigin,
-        "destination": trueDestination,
-        "status": _selectedStatus,
-        "departed": departedEpoch,
-        "onboarding_time": isOnboarding ? Utility().getCurrentMSEpochTime() : 0,
-        "onboarding_duration_minutes": onboardingDurationMins,
-        "arrival": arrivalEpoch,
-        "image_proof": newImageUrl,
+      final payload = <String, dynamic>{
+        'vessel_id': widget.vesselId,
+        'route_profile_id': routeProfile?['profile_id'],
+        'origin_port_id': trueOrigin,
+        'destination_port_id': trueDestination,
+        'current_port_id': currentPort,
+        'status': statusLower,
+        'docked_state': statusLower == 'docked' ? _dockedState : null,
+        'status_started_at': now.toIso8601String(),
+        'estimated_transition_earliest_at': earliest?.toIso8601String(),
+        'estimated_transition_latest_at': latest?.toIso8601String(),
+        'boarding_closes_at': boardingCloses?.toIso8601String(),
+        'actual_departed_at': statusLower == 'departed'
+            ? now.toIso8601String()
+            : activeOperation?['actual_departed_at'],
+        'actual_arrived_at': statusLower == 'arrived'
+            ? now.toIso8601String()
+            : null,
+        'no_schedule_reason': statusLower == 'no_schedule'
+            ? _noScheduleReasonController.text.trim()
+            : null,
+        'status_note': _statusNoteController.text.trim().isEmpty
+            ? null
+            : _statusNoteController.text.trim(),
+        'weather_condition': statusLower == 'departed'
+            ? _weatherCondition
+            : null,
+        'passenger_level': _passengerLevel,
+        'passenger_level_source': 'manual',
+        'proof_image_path': fileName,
+        'proof_uploaded_at': now.toIso8601String(),
+        'proof_uploaded_by': userId,
+        'last_confirmed_at': now.toIso8601String(),
+        'updated_by': userId,
       };
 
-      // Construct update query
-      Map<String, dynamic> updatePayload = {'vessel_status': statusUpdateJson};
-
-      // Set vessel_current_port column on the database table to synchronize filter queries
-      if (trueOrigin != null) {
-        updatePayload['vessel_current_port'] = trueOrigin;
+      Map<String, dynamic> savedOperation;
+      if (activeOperation == null) {
+        savedOperation = Map<String, dynamic>.from(
+          await supabase
+              .from('vessel_operations')
+              .insert(payload)
+              .select()
+              .single(),
+        );
+      } else {
+        savedOperation = Map<String, dynamic>.from(
+          await supabase
+              .from('vessel_operations')
+              .update(payload)
+              .eq('operation_id', activeOperation['operation_id'])
+              .select()
+              .single(),
+        );
       }
 
-      await supabase
-          .from('vessels')
-          .update(updatePayload)
-          .eq('vessel_id', widget.vesselId);
+      await supabase.from('vessel_status_history').insert({
+        'operation_id': savedOperation['operation_id'],
+        'vessel_id': widget.vesselId,
+        'previous_status': activeOperation?['status'],
+        'new_status': statusLower,
+        'docked_state': statusLower == 'docked' ? _dockedState : null,
+        'origin_port_id': trueOrigin,
+        'destination_port_id': trueDestination,
+        'current_port_id': currentPort,
+        'status_started_at': now.toIso8601String(),
+        'estimate_earliest_at': earliest?.toIso8601String(),
+        'estimate_latest_at': latest?.toIso8601String(),
+        'boarding_closes_at': boardingCloses?.toIso8601String(),
+        'reason': statusLower == 'no_schedule'
+            ? _noScheduleReasonController.text.trim()
+            : null,
+        'weather_condition': statusLower == 'departed'
+            ? _weatherCondition
+            : null,
+        'passenger_level': _passengerLevel,
+        'passenger_level_source': 'manual',
+        'proof_image_path': fileName,
+        'proof_uploaded_at': now.toIso8601String(),
+        'proof_uploaded_by': userId,
+        'changed_by': userId,
+      });
 
       String userName = _preferences?.getString("user_name") ?? "An Admin";
       String assignedPort =
           _preferences?.getString("assigned_port") ?? "Unknown Port";
-      String userId = _preferences?.getString("user_id") ?? "unknown_user_id";
       String vesselNameUpper = widget.vesselName.toUpperCase();
       String statusUpper = _selectedStatus.toUpperCase();
 
@@ -475,13 +571,11 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
 
   @override
   Widget build(BuildContext context) {
-    final String statusLower = _selectedStatus.toLowerCase();
+    final String statusLower = _statusCode(_selectedStatus);
     final bool isRouteStatus =
         statusLower == 'departed' ||
         statusLower == 'arrived' ||
         statusLower == 'onboarding';
-    final bool isOnboarding = statusLower == 'onboarding';
-    final bool isStandby = statusLower == 'standby';
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -573,7 +667,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              _currentStatus.toUpperCase(),
+                              _currentStatusLabel().toUpperCase(),
                               style: TextStyle(
                                 color: _getStatusColor(_currentStatus),
                                 fontSize: 10,
@@ -589,14 +683,13 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                 ),
                 const SizedBox(height: 20),
 
-                // Flow Stepper Header
                 if (!_overrideMode) ...[
-                  _buildFlowStepper(),
+                  _buildAdminFlowCard(),
                   const SizedBox(height: 20),
                 ],
 
                 const Text(
-                  "LIVE PROOF (PHOTO)",
+                  "2. PHOTO PROOF",
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
@@ -695,101 +788,103 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                 ),
                 const SizedBox(height: 24),
 
-                StatefulBuilder(
-                  builder: (context, stateSetter) {
-                    _dateAndTimeStateSetter = stateSetter;
-                    return Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: outlineColor),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Row(
-                                  children: [
-                                    Icon(
-                                      Icons.calendar_today_rounded,
-                                      size: 14,
-                                      color: Color(0xFF3B82F6),
-                                    ),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      "CURRENT DATE",
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w900,
-                                        color: Color(0xFF94A3B8),
+                Offstage(
+                  offstage: true,
+                  child: StatefulBuilder(
+                    builder: (context, stateSetter) {
+                      return Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: outlineColor),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Row(
+                                    children: [
+                                      Icon(
+                                        Icons.calendar_today_rounded,
+                                        size: 14,
+                                        color: Color(0xFF3B82F6),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _getFormattedDate(),
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w900,
-                                    color: textPrimary,
+                                      SizedBox(width: 6),
+                                      Text(
+                                        "CURRENT DATE",
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          color: Color(0xFF94A3B8),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _getFormattedDate(),
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                      color: textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: outlineColor),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Row(
-                                  children: [
-                                    Icon(
-                                      Icons.access_time_filled_rounded,
-                                      size: 14,
-                                      color: Color(0xFF10B981),
-                                    ),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      "LOCAL TIME",
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w900,
-                                        color: Color(0xFF94A3B8),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: outlineColor),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Row(
+                                    children: [
+                                      Icon(
+                                        Icons.access_time_filled_rounded,
+                                        size: 14,
+                                        color: Color(0xFF10B981),
                                       ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _getFormattedTime(),
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w900,
-                                    color: textPrimary,
+                                      SizedBox(width: 6),
+                                      Text(
+                                        "LOCAL TIME",
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900,
+                                          color: Color(0xFF94A3B8),
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _getFormattedTime(),
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                      color: textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    );
-                  },
+                        ],
+                      );
+                    },
+                  ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox.shrink(),
 
                 if (_overrideMode) ...[
                   const Text(
@@ -839,80 +934,61 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                                 if (newValue != null) {
                                   setState(() {
                                     _selectedStatus = newValue;
-                                    if (newValue.toLowerCase() !=
-                                        'onboarding') {
-                                      _onboardingDurationController.clear();
-                                    }
+                                    _resetTimerForStatus();
                                   });
                                 }
                               },
                       ),
                     ),
                   ),
+                  _buildFlowStepper(),
                   const SizedBox(height: 24),
-                ] else ...[
-                  // Show next step action label
-                  Text(
-                    "UPDATING STATUS TO: ${_selectedStatus.toUpperCase()}",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: accentBlue,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                 ],
 
-                if (isOnboarding) ...[
-                  const Text(
-                    "ESTIMATED ONBOARDING DURATION (MINUTES)",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF64748B),
-                      letterSpacing: 1.2,
-                    ),
+                if ((statusLower == 'docked' && _dockedState == 'preparing') ||
+                    statusLower == 'onboarding' ||
+                    statusLower == 'departed') ...[
+                  _buildTimerEditor(),
+                  const SizedBox(height: 24),
+                ],
+
+                if (statusLower == 'departed') ...[
+                  _buildChoiceDropdown(
+                    "WEATHER CONDITION",
+                    _weatherCondition,
+                    const {
+                      'good': 'Good',
+                      'moderate': 'Moderate',
+                      'rough': 'Rough',
+                    },
+                    (value) {
+                      setState(() {
+                        _weatherCondition = value;
+                        _resetTimerForStatus();
+                      });
+                    },
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _onboardingDurationController,
-                    keyboardType: TextInputType.number,
-                    enabled: !_isUploading,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: "e.g. 45",
-                      hintStyle: TextStyle(
-                        color: Colors.grey.withValues(alpha: 0.8),
-                        fontSize: 14,
-                        fontWeight: FontWeight.normal,
-                      ),
-                      prefixIcon: const Icon(
-                        Icons.timer_outlined,
-                        color: Color(0xFF64748B),
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 16,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: outlineColor),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: outlineColor),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: accentBlue, width: 1.5),
-                      ),
-                    ),
+                  const SizedBox(height: 24),
+                ],
+
+                _buildChoiceDropdown(
+                  "PASSENGER LEVEL",
+                  _passengerLevel,
+                  const {
+                    'light': 'Light',
+                    'medium': 'Medium',
+                    'heavy': 'Heavy',
+                    'very_heavy': 'Very Heavy',
+                  },
+                  (value) => setState(() => _passengerLevel = value),
+                ),
+                const SizedBox(height: 24),
+
+                if (statusLower == 'no_schedule') ...[
+                  _buildTextInput(
+                    "NO SCHEDULE REASON",
+                    _noScheduleReasonController,
+                    "Typhoon, maintenance, port closure, or another reason",
                   ),
                   const SizedBox(height: 24),
                 ],
@@ -953,35 +1029,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                         ? null
                         : (val) => setState(() => _destinationPortId = val),
                   ),
-                ] else if (isStandby) ...[
-                  const Text(
-                    "STANDBY INFORMATION",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF64748B),
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildPortDropdown(
-                    "Current Location",
-                    _currentPortId,
-                    (val) => setState(() => _currentPortId = val),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Icon(
-                      Icons.arrow_downward_rounded,
-                      color: Color(0xFFCBD5E1),
-                      size: 20,
-                    ),
-                  ),
-                  _buildPortDropdown(
-                    "Next Destination",
-                    _destinationPortId,
-                    (val) => setState(() => _destinationPortId = val),
-                  ),
                 ] else ...[
                   const Text(
                     "CURRENT LOCATION (PORT)",
@@ -999,6 +1046,14 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                     (val) => setState(() => _currentPortId = val),
                   ),
                 ],
+
+                const SizedBox(height: 24),
+
+                _buildTextInput(
+                  "STATUS NOTE",
+                  _statusNoteController,
+                  "Optional operational note",
+                ),
 
                 const SizedBox(height: 24),
 
@@ -1058,9 +1113,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                             ),
                           )
                         : Text(
-                            _overrideMode
-                                ? "Force Override Status"
-                                : "Set as $_selectedStatus",
+                            _submitButtonLabel(),
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w900,
@@ -1082,12 +1135,12 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                     label: Text(
                       _overrideMode
                           ? "Back to Flow Sequence"
-                          : "Manual Override / Reset Status",
+                          : "More status options",
                     ),
                     style: TextButton.styleFrom(
                       foregroundColor: _overrideMode
                           ? accentBlue
-                          : const Color(0xFFEF4444),
+                          : textSecondary,
                       textStyle: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -1101,6 +1154,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                         } else {
                           _determineNextStatus();
                         }
+                        _resetTimerForStatus();
                       });
                     },
                   ),
@@ -1334,6 +1388,121 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     );
   }
 
+  String _submitButtonLabel() {
+    final status = _statusCode(_selectedStatus);
+    if (status == 'docked') {
+      if (_dockedState == 'tba') return 'Save Docked | TBA';
+      if (_dockedState == 'preparing') return 'Save Docked | Preparing';
+      return 'Save Docked';
+    }
+    return 'Update to $_selectedStatus';
+  }
+
+  Widget _buildAdminFlowCard() {
+    final currentStatus = _statusCode(_currentStatus);
+    final selectedStatus = _statusCode(_selectedStatus);
+    final showDockedActions =
+        currentStatus == 'docked' || selectedStatus == 'docked';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: outlineColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '1. CHOOSE ACTION',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF64748B),
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (showDockedActions) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children:
+                  {
+                    'docked': 'Docked',
+                    'tba': 'Docked | TBA',
+                    'preparing': 'Docked | Preparing',
+                  }.entries.map((entry) {
+                    final selected =
+                        selectedStatus == 'docked' && _dockedState == entry.key;
+                    return ChoiceChip(
+                      label: Text(entry.value),
+                      selected: selected,
+                      onSelected: _isUploading
+                          ? null
+                          : (_) {
+                              setState(() {
+                                _overrideMode = false;
+                                _selectedStatus = 'Docked';
+                                _dockedState = entry.key;
+                                _resetTimerForStatus();
+                              });
+                            },
+                    );
+                  }).toList(),
+            ),
+            if (currentStatus == 'docked') ...[
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isUploading
+                      ? null
+                      : () {
+                          setState(() {
+                            _overrideMode = false;
+                            _selectedStatus = 'Onboarding';
+                            _resetTimerForStatus();
+                          });
+                        },
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                  label: const Text('Continue to Onboarding'),
+                ),
+              ),
+            ],
+          ] else ...[
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _currentStatus,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: textSecondary,
+                    ),
+                  ),
+                ),
+                Icon(Icons.arrow_forward_rounded, color: accentBlue, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _selectedStatus,
+                    textAlign: TextAlign.end,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: accentBlue,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildPortDropdown(
     String hint,
     String? currentValue,
@@ -1405,17 +1574,221 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     );
   }
 
+  Widget _buildChoiceDropdown(
+    String label,
+    String value,
+    Map<String, String> choices,
+    ValueChanged<String> onChanged,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF64748B),
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: outlineColor),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: value,
+              items: choices.entries
+                  .map(
+                    (entry) => DropdownMenuItem(
+                      value: entry.key,
+                      child: Text(
+                        entry.value,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: _isUploading
+                  ? null
+                  : (selected) {
+                      if (selected != null) onChanged(selected);
+                    },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTimerEditor() {
+    final settings = _timerSettings();
+    final status = _statusCode(_selectedStatus);
+    final label = status == 'docked'
+        ? 'DOCK PREPARATION AND FUELING TIME'
+        : status == 'onboarding'
+        ? 'TIME UNTIL DEPARTURE'
+        : 'ESTIMATED TRAVEL TIME';
+    final expectedTime = DateTime.now().add(
+      Duration(minutes: _timerMinutes.round()),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF64748B),
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 14, 12, 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: outlineColor),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Slider(
+                      value: _timerMinutes,
+                      min: settings.minimum,
+                      max: settings.maximum,
+                      divisions: (settings.maximum - settings.minimum).round(),
+                      label: '${_timerMinutes.round()} min',
+                      onChanged: _isUploading ? null : _setTimerMinutes,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 92,
+                    child: TextField(
+                      controller: _timerMinutesController,
+                      enabled: !_isUploading,
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      onChanged: (value) {
+                        final parsed = double.tryParse(value);
+                        if (parsed != null &&
+                            parsed >= settings.minimum &&
+                            parsed <= settings.maximum) {
+                          setState(() => _timerMinutes = parsed);
+                        }
+                      },
+                      onEditingComplete: _validateTimerInput,
+                      onSubmitted: (_) => _validateTimerInput(),
+                      decoration: InputDecoration(
+                        suffixText: 'min',
+                        isDense: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '${settings.minimum.round()} min',
+                      style: TextStyle(fontSize: 11, color: textSecondary),
+                    ),
+                    Text(
+                      'Expected ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(expectedTime))}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: accentBlue,
+                      ),
+                    ),
+                    Text(
+                      '${settings.maximum.round()} min',
+                      style: TextStyle(fontSize: 11, color: textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTextInput(
+    String label,
+    TextEditingController controller,
+    String hint,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF64748B),
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: controller,
+          enabled: !_isUploading,
+          maxLines: 2,
+          decoration: InputDecoration(
+            hintText: hint,
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: outlineColor),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: outlineColor),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: accentBlue, width: 1.5),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
+    switch (_statusCode(status)) {
       case 'docked':
-      case 'arrived':
-        return Colors.teal;
+        return Colors.red;
       case 'departed':
-        return Colors.blue;
+        return Colors.green;
       case 'onboarding':
         return Colors.orange;
-      case 'maintenance':
-        return Colors.red;
+      case 'arrived':
+        return Colors.blue;
+      case 'no_schedule':
+        return Colors.grey;
       default:
         return Colors.grey;
     }

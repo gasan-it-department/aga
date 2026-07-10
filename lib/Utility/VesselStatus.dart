@@ -1,13 +1,9 @@
-
-
-class VesselStatus{
+class VesselStatus {
   final List<String> statusList = [
-    "Maintenance",
+    "No Schedule",
     "Docked",
+    "Onboarding",
     "Departed",
     "Arrived",
-    "Onboarding",
-    "Standby",
-    "Rerouted"
   ];
 }

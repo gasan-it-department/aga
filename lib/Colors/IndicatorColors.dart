@@ -13,14 +13,13 @@ class StatusColors {
 }
 
 class IndicatorColors {
-
   // ==========================================
   // 1. MAINTENANCE (Grey to Black)
   // ==========================================
   static const StatusColors maintenance = StatusColors(
     background: Color(0xFFF3F4F6), // Very Light Faded Grey
-    text: Color(0xFF1F2937),       // Near Black
-    border: Color(0xFFD1D5DB),     // Medium Grey
+    text: Color(0xFF1F2937), // Near Black
+    border: Color(0xFFD1D5DB), // Medium Grey
   );
 
   // ==========================================
@@ -28,8 +27,8 @@ class IndicatorColors {
   // ==========================================
   static const StatusColors docked = StatusColors(
     background: Color(0xFFFFF1F2), // Faded Rose/Pink
-    text: Color(0xFFE11D48),       // Deep Red
-    border: Color(0xFFFECDD3),     // Soft Pink/Red Border
+    text: Color(0xFFE11D48), // Deep Red
+    border: Color(0xFFFECDD3), // Soft Pink/Red Border
   );
 
   // ==========================================
@@ -37,26 +36,26 @@ class IndicatorColors {
   // ==========================================
   static const StatusColors onboarding = StatusColors(
     background: Color(0xFFFFFBEB), // Faded Yellow
-    text: Color(0xFFB45309),       // Dark Amber (so it's readable on white)
-    border: Color(0xFFFDE68A),     // Soft Yellow Border
+    text: Color(0xFFB45309), // Dark Amber (so it's readable on white)
+    border: Color(0xFFFDE68A), // Soft Yellow Border
   );
 
   // ==========================================
   // 4. DEPARTED (Blue)
   // ==========================================
   static const StatusColors departed = StatusColors(
-    background: Color(0xFFEFF6FF), // Faded Blue
-    text: Color(0xFF1D4ED8),       // Solid Dark Blue
-    border: Color(0xFFBFDBFE),     // Soft Blue Border
+    background: Color(0xFFECFDF5),
+    text: Color(0xFF047857),
+    border: Color(0xFFA7F3D0),
   );
 
   // ==========================================
   // 5. ARRIVAL / ARRIVED (Green)
   // ==========================================
   static const StatusColors arrival = StatusColors(
-    background: Color(0xFFECFDF5), // Faded Mint Green
-    text: Color(0xFF047857),       // Deep Emerald Green
-    border: Color(0xFFA7F3D0),     // Soft Green Border
+    background: Color(0xFFEFF6FF),
+    text: Color(0xFF1D4ED8),
+    border: Color(0xFFBFDBFE),
   );
 
   // ==========================================
@@ -64,8 +63,8 @@ class IndicatorColors {
   // ==========================================
   static const StatusColors rerouted = StatusColors(
     background: Color(0xFFF5F3FF), // Faded Purple
-    text: Color(0xFF6D28D9),       // Vibrant Deep Purple
-    border: Color(0xFFDDD6FE),     // Soft Purple Border
+    text: Color(0xFF6D28D9), // Vibrant Deep Purple
+    border: Color(0xFFDDD6FE), // Soft Purple Border
   );
 
   // ==========================================
@@ -80,6 +79,8 @@ class IndicatorColors {
   static StatusColors getColors(String status) {
     switch (status.toLowerCase()) {
       case 'maintenance':
+      case 'no_schedule':
+      case 'no schedule':
         return maintenance;
       case 'docked':
         return docked;

@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:gasan_port_tracker/Dialogs/LoadingDialog.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
-import 'package:gasan_port_tracker/Utility/VesselStatus.dart';
 import 'package:gasan_port_tracker/Utility/VesselTypes.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,13 +29,7 @@ class _AddEditVesselState extends State<AddEditVessel> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _imoController = TextEditingController();
 
-  final _loadingDialog = LoadingDialog();
-
   String? _selectedVesselType;
-  String? _selectedPortId;
-  String _selectedStatus = "Docked";
-
-  List<Map<String, dynamic>> _ports = [];
   bool _isSaving = false;
   bool get isEditMode => widget.vessel != null;
   String get namePreview => _nameController.text.trim();
@@ -52,38 +44,15 @@ class _AddEditVesselState extends State<AddEditVessel> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (isEditMode) {
         _nameController.text = widget.vessel!['vessel_name'] ?? '';
-        _imoController.text = widget.vessel!['vessel_imo_number'] ?? '';
+        _imoController.text = widget.vessel!['imo_number'] ?? '';
         _selectedVesselType = widget.vessel!['vessel_type'];
-        _selectedPortId = widget.vessel!['vessel_current_port'];
-
-        final dynamic statusData = widget.vessel!['vessel_status'];
-        if (statusData is Map) {
-          _selectedStatus = statusData['status'] ?? "Docked";
-        } else {
-          _selectedStatus = statusData?.toString() ?? "Docked";
-        }
       }
-      _fetchPorts();
     });
   }
 
   // --- NEW: Load SharedPreferences ---
   Future<void> _initPrefs() async {
     _preferences = await SharedPreferences.getInstance();
-  }
-
-  Future<void> _fetchPorts() async {
-    try {
-      _loadingDialog.showLoadingDialog(context);
-      final data = await supabase.from('ports').select('port_id, port_name').order('port_name');
-      setState(() {
-        _ports = List<Map<String, dynamic>>.from(data);
-        _loadingDialog.dismiss();
-      });
-    } catch (e) {
-      _loadingDialog.dismiss();
-      debugPrint("Error fetching ports: $e");
-    }
   }
 
   @override
@@ -96,59 +65,58 @@ class _AddEditVesselState extends State<AddEditVessel> {
   Future<void> _handleSave() async {
     final String name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vessel Name is required")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Vessel Name is required")));
       return;
     }
 
     setState(() => _isSaving = true);
 
-    final Map<String, dynamic> statusJson = {
-      "origin": null,
-      "destination": null,
-      "status": _selectedStatus,
-      "departed": 0,
-      "onboarding_time": _selectedStatus.toLowerCase() == "onboarding" ? Utility().getCurrentMSEpochTime() : 0,
-      "arrival": 0,
-      "image_proof": null
-    };
-
     final Map<String, dynamic> data = {
       'vessel_name': name,
-      'vessel_imo_number': _imoController.text.trim(),
+      'imo_number': _imoController.text.trim().isEmpty
+          ? null
+          : _imoController.text.trim(),
       'vessel_type': _selectedVesselType,
-      'vessel_status': statusJson,
-      'vessel_current_port': _selectedPortId,
       'shipping_line_id': widget.shippingLineId,
     };
 
     // --- NEW: Get admin info for logging ---
     String userName = _preferences?.getString("user_name") ?? "An Admin";
-    String assignedPort = _preferences?.getString("assigned_port") ?? "Unknown Port";
+    String assignedPort =
+        _preferences?.getString("assigned_port") ?? "Unknown Port";
     String userId = _preferences?.getString("user_id") ?? "unknown_user_id";
     String vesselName = name.toUpperCase();
 
     try {
       if (isEditMode) {
-        data['vessel_id'] = widget.vessel!['vessel_id'];
-        await supabase.from('vessels').update(data).eq('vessel_id', widget.vessel!['vessel_id']);
+        await supabase
+            .from('vessels')
+            .update(data)
+            .eq('vessel_id', widget.vessel!['vessel_id']);
 
         // --- NEW: Log Update ---
         await MaritimeActivityLogger.createLog(
-            title: "Vessel Updated",
-            message: "$vesselName details were modified by [$assignedPort] - $userName.",
-            creatorId: userId
+          title: "Vessel Updated",
+          message:
+              "$vesselName details were modified by [$assignedPort] - $userName.",
+          creatorId: userId,
         );
-
       } else {
-        data['vessel_id'] = DateTime.now().millisecondsSinceEpoch.toString();
-        data["vessel_added_date"] = Utility().getCurrentMSEpochTime();
-        await supabase.from('vessels').insert(data);
+        final created = await supabase
+            .from('vessels')
+            .insert(data)
+            .select()
+            .single();
+        data.addAll(Map<String, dynamic>.from(created));
 
         // --- NEW: Log Creation ---
         await MaritimeActivityLogger.createLog(
-            title: "Vessel Registered",
-            message: "$vesselName was added to the fleet by [$assignedPort] - $userName.",
-            creatorId: userId
+          title: "Vessel Registered",
+          message:
+              "$vesselName was added to the fleet by [$assignedPort] - $userName.",
+          creatorId: userId,
         );
       }
       if (mounted) Navigator.pop(context, data);
@@ -167,20 +135,34 @@ class _AddEditVesselState extends State<AddEditVessel> {
         backgroundColor: Colors.white,
         foregroundColor: primaryColor,
         elevation: 0,
-        title: Text(isEditMode ? "Edit Vessel" : "Register Vessel",
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+        title: Text(
+          isEditMode ? "Edit Vessel" : "Register Vessel",
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+        ),
         actions: [
           if (!_isSaving)
             TextButton.icon(
               onPressed: _handleSave,
               icon: const Icon(Icons.done_all_rounded),
-              label: const Text("Save", style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const Text(
+                "Save",
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             )
           else
-            const Center(child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0),
-              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF3B82F6))),
-            )),
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16.0),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF3B82F6),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
       body: SingleChildScrollView(
@@ -192,7 +174,9 @@ class _AddEditVesselState extends State<AddEditVessel> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
+                constraints: BoxConstraints(
+                  maxWidth: Utility().getMaxScreenSize(),
+                ),
                 child: Column(
                   children: [
                     _buildHeaderPreview(),
@@ -222,25 +206,16 @@ class _AddEditVesselState extends State<AddEditVessel> {
                     const SizedBox(height: 16),
 
                     _buildFormSection(
-                      title: "OPERATIONAL STATUS",
+                      title: "VESSEL CLASSIFICATION",
                       children: [
                         _buildDropdownField(
                           label: "Vessel Type",
                           value: _selectedVesselType,
                           icon: Icons.category_outlined,
                           items: VesselTypes().shipTypes,
-                          onChanged: (val) => setState(() => _selectedVesselType = val),
+                          onChanged: (val) =>
+                              setState(() => _selectedVesselType = val),
                         ),
-                        const Divider(height: 32, thickness: 0.5),
-                        _buildDropdownField(
-                          label: "Current Status",
-                          value: _selectedStatus,
-                          icon: Icons.info_outline,
-                          items: VesselStatus().statusList,
-                          onChanged: (val) => setState(() => _selectedStatus = val!),
-                        ),
-                        const Divider(height: 32, thickness: 0.5),
-                        _buildPortDropdown(),
                       ],
                     ),
                     const SizedBox(height: 40),
@@ -262,10 +237,10 @@ class _AddEditVesselState extends State<AddEditVessel> {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-              color: primaryColor.withValues(alpha: 0.2),
-              blurRadius: 15,
-              offset: const Offset(0, 8)
-          )
+            color: primaryColor.withValues(alpha: 0.2),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       child: Row(
@@ -273,32 +248,53 @@ class _AddEditVesselState extends State<AddEditVessel> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.15),
-                shape: BoxShape.circle
+              color: Colors.white.withValues(alpha: 0.15),
+              shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.directions_boat_filled, color: Colors.white, size: 32),
+            child: const Icon(
+              Icons.directions_boat_filled,
+              color: Colors.white,
+              size: 32,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(namePreview.isEmpty ? "VESSEL NAME" : namePreview.toUpperCase(),
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+                Text(
+                  namePreview.isEmpty
+                      ? "VESSEL NAME"
+                      : namePreview.toUpperCase(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    Text(_selectedVesselType ?? "Select Type Below",
-                        style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.7),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500
-                        )),
+                    Text(
+                      _selectedVesselType ?? "Select Type Below",
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                     const SizedBox(width: 8),
                     const Text("•", style: TextStyle(color: Colors.white54)),
                     const SizedBox(width: 8),
-                    Text(_selectedStatus.toUpperCase(),
-                        style: const TextStyle(color: Color(0xFF34D399), fontSize: 13, fontWeight: FontWeight.bold)),
+                    const Text(
+                      "STATUS SET WITH PHOTO PROOF",
+                      style: TextStyle(
+                        color: Color(0xFF34D399),
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -309,7 +305,10 @@ class _AddEditVesselState extends State<AddEditVessel> {
     );
   }
 
-  Widget _buildFormSection({required String title, required List<Widget> children}) {
+  Widget _buildFormSection({
+    required String title,
+    required List<Widget> children,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -321,7 +320,15 @@ class _AddEditVesselState extends State<AddEditVessel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(color: textSecondary, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+          Text(
+            title,
+            style: TextStyle(
+              color: textSecondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.2,
+            ),
+          ),
           const SizedBox(height: 20),
           ...children,
         ],
@@ -329,7 +336,14 @@ class _AddEditVesselState extends State<AddEditVessel> {
     );
   }
 
-  Widget _buildInputField({required String label, required String hint, required TextEditingController controller, required IconData icon, bool enabled = true, Function(String)? onChanged}) {
+  Widget _buildInputField({
+    required String label,
+    required String hint,
+    required TextEditingController controller,
+    required IconData icon,
+    bool enabled = true,
+    Function(String)? onChanged,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -337,7 +351,14 @@ class _AddEditVesselState extends State<AddEditVessel> {
           children: [
             Icon(icon, size: 18, color: primaryColor),
             const SizedBox(width: 8),
-            Text(label, style: TextStyle(color: textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
+            Text(
+              label,
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ],
         ),
         TextField(
@@ -346,21 +367,27 @@ class _AddEditVesselState extends State<AddEditVessel> {
           onChanged: onChanged,
           style: TextStyle(color: textPrimary, fontWeight: FontWeight.w600),
           decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: TextStyle(
-                  color: textSecondary.withValues(alpha: 0.4),
-                  fontSize: 14
-              ),
-              border: InputBorder.none,
-              isDense: true,
-              contentPadding: const EdgeInsets.only(top: 10, left: 26)
+            hintText: hint,
+            hintStyle: TextStyle(
+              color: textSecondary.withValues(alpha: 0.4),
+              fontSize: 14,
+            ),
+            border: InputBorder.none,
+            isDense: true,
+            contentPadding: const EdgeInsets.only(top: 10, left: 26),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildDropdownField({required String label, required String? value, required IconData icon, required List<String> items, required Function(String?) onChanged}) {
+  Widget _buildDropdownField({
+    required String label,
+    required String? value,
+    required IconData icon,
+    required List<String> items,
+    required Function(String?) onChanged,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -368,7 +395,14 @@ class _AddEditVesselState extends State<AddEditVessel> {
           children: [
             Icon(icon, size: 18, color: primaryColor),
             const SizedBox(width: 8),
-            Text(label, style: TextStyle(color: textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
+            Text(
+              label,
+              style: TextStyle(
+                color: textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ],
         ),
         Padding(
@@ -377,38 +411,21 @@ class _AddEditVesselState extends State<AddEditVessel> {
             child: DropdownButton<String>(
               isExpanded: true,
               value: value,
-              items: items.map((t) => DropdownMenuItem(value: t, child: Text(t, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)))).toList(),
+              items: items
+                  .map(
+                    (t) => DropdownMenuItem(
+                      value: t,
+                      child: Text(
+                        t,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
               onChanged: onChanged,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPortDropdown() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(Icons.anchor, size: 18, color: primaryColor),
-            const SizedBox(width: 8),
-            Text("Current Port Location", style: TextStyle(color: textPrimary, fontSize: 13, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        Padding(
-          padding: const EdgeInsets.only(left: 26),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              isExpanded: true,
-              value: _selectedPortId,
-              hint: Text("Select active port", style: TextStyle(
-                  color: textSecondary.withValues(alpha: 0.4),
-                  fontSize: 14
-              )),
-              items: _ports.map((p) => DropdownMenuItem(value: p['port_id'].toString(), child: Text(p['port_name'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)))).toList(),
-              onChanged: (val) => setState(() => _selectedPortId = val),
             ),
           ),
         ),

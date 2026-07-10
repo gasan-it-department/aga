@@ -45,8 +45,11 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
 
     if (isEditMode) {
       _nameController.text = widget.shippingLine!['shipping_line_name'] ?? '';
-      _contactController.text = widget.shippingLine!['shipping_line_contact'] ?? '';
-      _schedules = _parseJsonField(widget.shippingLine!['shipping_line_schedules']);
+      _contactController.text =
+          widget.shippingLine!['shipping_line_contact'] ?? '';
+      _schedules = _parseJsonField(
+        widget.shippingLine!['shipping_line_schedules'],
+      );
       _fares = _parseJsonField(widget.shippingLine!['shipping_line_fares']);
     }
 
@@ -91,48 +94,109 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
 
     final Map<String, dynamic> data = {
       'shipping_line_name': _nameController.text.trim(),
-      'shipping_line_contact': _contactController.text.trim(),
-      'shipping_line_schedules': jsonEncode(_schedules),
-      'shipping_line_fares': jsonEncode(_fares),
-      'shipping_line_status': 'Active',
+      'contact_number': _contactController.text.trim().isEmpty
+          ? null
+          : _contactController.text.trim(),
+      'is_active': true,
     };
 
     // --- NEW: Get admin info for logging ---
     String userName = _preferences?.getString("user_name") ?? "An Admin";
-    String assignedPort = _preferences?.getString("assigned_port") ?? "Unknown Port";
+    String assignedPort =
+        _preferences?.getString("assigned_port") ?? "Unknown Port";
     String lineName = _nameController.text.trim().toUpperCase();
 
     try {
+      Map<String, dynamic> savedLine;
       if (isEditMode) {
-        await supabase
-            .from('shipping_lines')
-            .update(data)
-            .eq('shipping_line_id', widget.shippingLine!['shipping_line_id']);
-
-        await MaritimeActivityLogger.createLog(
-            title: "Shipping Line Updated",
-            message: "$lineName was modified by [$assignedPort] - $userName.",
-            creatorId: userName
+        savedLine = Map<String, dynamic>.from(
+          await supabase
+              .from('shipping_lines')
+              .update(data)
+              .eq('shipping_line_id', widget.shippingLine!['shipping_line_id'])
+              .select()
+              .single(),
         );
 
+        await MaritimeActivityLogger.createLog(
+          title: "Shipping Line Updated",
+          message: "$lineName was modified by [$assignedPort] - $userName.",
+          creatorId: userName,
+        );
       } else {
-        data['shipping_line_id'] = Utility().generateUniqueID();
-        data["shipping_line_added_date"] = Utility().getCurrentMSEpochTime();
-
-        await supabase.from('shipping_lines').insert(data);
+        savedLine = Map<String, dynamic>.from(
+          await supabase.from('shipping_lines').insert(data).select().single(),
+        );
 
         await MaritimeActivityLogger.createLog(
-            title: "Shipping Line Added",
-            message: "$lineName was added to the fleet database by [$assignedPort] - $userName.",
-            creatorId: userName
+          title: "Shipping Line Added",
+          message:
+              "$lineName was added to the fleet database by [$assignedPort] - $userName.",
+          creatorId: userName,
         );
+      }
+
+      final lineId = savedLine['shipping_line_id'];
+      await supabase
+          .from('shipping_line_route_profiles')
+          .delete()
+          .eq('shipping_line_id', lineId);
+      final portIdsByName = {
+        for (final port in widget.ports ?? const <Map<String, dynamic>>[])
+          port['port_name'].toString(): port['port_id'].toString(),
+      };
+
+      for (final route in _schedules) {
+        final routeText = route['route']?.toString() ?? '';
+        final parts = routeText.split(' to ');
+        final originId =
+            route['origin_port_id']?.toString() ??
+            (parts.isNotEmpty ? portIdsByName[parts.first] : null);
+        final destinationId =
+            route['destination_port_id']?.toString() ??
+            (parts.length > 1 ? portIdsByName[parts.last] : null);
+        if (originId == null || destinationId == null) continue;
+
+        final profile = await supabase
+            .from('shipping_line_route_profiles')
+            .insert({
+              'shipping_line_id': lineId,
+              'origin_port_id': originId,
+              'destination_port_id': destinationId,
+              'vessel_type': route['shipType'] ?? 'All',
+              'docked_min_minutes': 30,
+              'docked_default_minutes': 45,
+              'docked_max_minutes': 60,
+            })
+            .select()
+            .single();
+
+        if (_fares.isNotEmpty) {
+          await supabase
+              .from('shipping_line_fares')
+              .insert(
+                _fares
+                    .map(
+                      (fare) => {
+                        'profile_id': profile['profile_id'],
+                        'fare_category': fare['type'],
+                        'amount':
+                            double.tryParse(fare['price']?.toString() ?? '') ??
+                            0,
+                      },
+                    )
+                    .toList(),
+              );
+        }
       }
 
       if (mounted) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isEditMode ? "Updated successfully" : "Created successfully"),
+            content: Text(
+              isEditMode ? "Updated successfully" : "Created successfully",
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -141,7 +205,10 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
       debugPrint("Save error: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${e.toString()}"), backgroundColor: Colors.redAccent),
+          SnackBar(
+            content: Text("Error: ${e.toString()}"),
+            backgroundColor: Colors.redAccent,
+          ),
         );
       }
     } finally {
@@ -154,98 +221,104 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-          backgroundColor: bgColor,
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            foregroundColor: primaryColor,
-            elevation: 0,
-            title: Text(
-              isEditMode ? "Edit" : "New",
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-            ),
-            actions: [
-              if (!_isSaving)
-                TextButton.icon(
-                  onPressed: _handleSave,
-                  icon: const Icon(Icons.done_all_rounded),
-                  label: const Text("Save", style: TextStyle(fontWeight: FontWeight.bold)),
-                )
-              else
-                const Center(child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16.0),
-                  child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                )),
-            ],
+        backgroundColor: bgColor,
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          foregroundColor: primaryColor,
+          elevation: 0,
+          title: Text(
+            isEditMode ? "Edit" : "New",
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
           ),
-          body: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
-              child: Column(
-                children: [
-                  // 1. IDENTITY SECTION
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: outlineColor),
-                      ),
-                      child: Column(
-                        children: [
-                          _buildDashboardField(
-                              label: "Shipping Line Name",
-                              icon: Icons.business_center_rounded,
-                              controller: _nameController,
-                              hint: "e.g. Starhorse Shipping"
-                          ),
-                          const Divider(height: 32),
-                          _buildDashboardField(
-                              label: "Contact Number",
-                              icon: Icons.phone_android_rounded,
-                              controller: _contactController,
-                              hint: "e.g. +63 912 345 6789"
-                          ),
-                        ],
-                      ),
-                    ),
+          actions: [
+            if (!_isSaving)
+              TextButton.icon(
+                onPressed: _handleSave,
+                icon: const Icon(Icons.done_all_rounded),
+                label: const Text(
+                  "Save",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              )
+            else
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-
-                  // 2. TAB NAVIGATION
-                  Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                ),
+              ),
+          ],
+        ),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
+            child: Column(
+              children: [
+                // 1. IDENTITY SECTION
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: outlineColor),
                     ),
-                    child: TabBar(
-                      labelColor: primaryColor,
-                      unselectedLabelColor: textSecondary,
-                      indicatorColor: accentColor,
-                      indicatorWeight: 3,
-                      indicatorSize: TabBarIndicatorSize.label,
-                      tabs: const [
-                        Tab(text: "Schedules"),
-                        Tab(text: "Fares"),
-                      ],
-                    ),
-                  ),
-
-                  // 3. TAB VIEW
-                  Expanded(
-                    child: TabBarView(
+                    child: Column(
                       children: [
-                        _buildScheduleTab(),
-                        _buildFareTab(),
+                        _buildDashboardField(
+                          label: "Shipping Line Name",
+                          icon: Icons.business_center_rounded,
+                          controller: _nameController,
+                          hint: "e.g. Starhorse Shipping",
+                        ),
+                        const Divider(height: 32),
+                        _buildDashboardField(
+                          label: "Contact Number",
+                          icon: Icons.phone_android_rounded,
+                          controller: _contactController,
+                          hint: "e.g. +63 912 345 6789",
+                        ),
                       ],
                     ),
                   ),
-                ],
-              ),
+                ),
+
+                // 2. TAB NAVIGATION
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: outlineColor),
+                  ),
+                  child: TabBar(
+                    labelColor: primaryColor,
+                    unselectedLabelColor: textSecondary,
+                    indicatorColor: accentColor,
+                    indicatorWeight: 3,
+                    indicatorSize: TabBarIndicatorSize.label,
+                    tabs: const [
+                      Tab(text: "Routes"),
+                      Tab(text: "Fares"),
+                    ],
+                  ),
+                ),
+
+                // 3. TAB VIEW
+                Expanded(
+                  child: TabBarView(
+                    children: [_buildScheduleTab(), _buildFareTab()],
+                  ),
+                ),
+              ],
             ),
-          )
+          ),
+        ),
       ),
     );
   }
@@ -257,13 +330,30 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text("ROUTE SCHEDULES", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.grey)),
-            IconButton(onPressed: _addNewRoute, icon: Icon(Icons.add_circle_outline, color: accentColor)),
+            const Text(
+              "OPERATING ROUTES",
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+            IconButton(
+              onPressed: _addNewRoute,
+              icon: Icon(Icons.add_circle_outline, color: accentColor),
+            ),
           ],
         ),
         if (_schedules.isEmpty)
-          const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No routes added yet."))),
-        ..._schedules.asMap().entries.map((entry) => _buildRouteCard(entry.key)),
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Text("No routes added yet."),
+            ),
+          ),
+        ..._schedules.asMap().entries.map(
+          (entry) => _buildRouteCard(entry.key),
+        ),
       ],
     );
   }
@@ -290,7 +380,10 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
                   route['route'],
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -302,14 +395,22 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                     onPressed: () => _editRoute(index),
-                    icon: Icon(Icons.edit_outlined, color: accentColor, size: 20),
+                    icon: Icon(
+                      Icons.edit_outlined,
+                      color: accentColor,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   IconButton(
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                     onPressed: () => setState(() => _schedules.removeAt(index)),
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                      size: 20,
+                    ),
                   ),
                 ],
               ),
@@ -320,55 +421,36 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
           Row(
             children: [
               Text(
-                  route['status'] ?? "Fixed",
-                  style: TextStyle(color: accentColor, fontSize: 12, fontWeight: FontWeight.w600)
+                "Flexible departure",
+                style: TextStyle(
+                  color: accentColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               if (route['shipType'] != null) ...[
                 const SizedBox(width: 6),
-                const Text("•", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                const Text(
+                  "•",
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
                 const SizedBox(width: 6),
-                Icon(Icons.directions_boat_rounded, size: 12, color: textSecondary),
+                Icon(
+                  Icons.directions_boat_rounded,
+                  size: 12,
+                  color: textSecondary,
+                ),
                 const SizedBox(width: 4),
                 Text(
-                    route['shipType'],
-                    style: TextStyle(color: textSecondary, fontSize: 12, fontWeight: FontWeight.w600)
+                  route['shipType'],
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ],
-          ),
-          const SizedBox(height: 8),
-
-          Wrap(
-            spacing: 8,
-            children: (route['times'] as List).asMap().entries.map((timeEntry) {
-              return Chip(
-                backgroundColor: bgColor,
-                side: BorderSide.none,
-                label: Text(timeEntry.value.toString(), style: const TextStyle(fontSize: 11)),
-                onDeleted: () => setState(() => (route['times'] as List).removeAt(timeEntry.key)),
-              );
-            }).toList(),
-          ),
-
-          const Divider(height: 24),
-
-          InkWell(
-            onTap: () => _addTime(index),
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.more_time_rounded, size: 18, color: accentColor),
-                  const SizedBox(width: 6),
-                  Text(
-                      "Add Departure Time",
-                      style: TextStyle(color: accentColor, fontWeight: FontWeight.bold, fontSize: 13)
-                  ),
-                ],
-              ),
-            ),
           ),
         ],
       ),
@@ -382,12 +464,27 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text("PRICE MATRIX", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Colors.grey)),
-            IconButton(onPressed: _addNewFare, icon: Icon(Icons.add_circle_outline, color: accentColor)),
+            const Text(
+              "FARES APPLIED TO ALL ROUTES",
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+            IconButton(
+              onPressed: _addNewFare,
+              icon: Icon(Icons.add_circle_outline, color: accentColor),
+            ),
           ],
         ),
         if (_fares.isEmpty)
-          const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No fares added yet.")))
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Text("No fares added yet."),
+            ),
+          )
         else
           Container(
             decoration: BoxDecoration(
@@ -399,8 +496,18 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
               children: List.generate(_fares.length, (index) {
                 return ListTile(
                   onTap: () => _editFare(index),
-                  title: Text(_fares[index]['type'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: Text("₱${Utility().formatPrice(_fares[index]['price'])}", style: TextStyle(color: accentColor, fontWeight: FontWeight.w900, fontSize: 16)),
+                  title: Text(
+                    _fares[index]['type'],
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  trailing: Text(
+                    "₱${Utility().formatPrice(_fares[index]['price'])}",
+                    style: TextStyle(
+                      color: accentColor,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
                 );
               }),
             ),
@@ -409,7 +516,12 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
     );
   }
 
-  Widget _buildDashboardField({required String label, required IconData icon, required TextEditingController controller, required String hint}) {
+  Widget _buildDashboardField({
+    required String label,
+    required IconData icon,
+    required TextEditingController controller,
+    required String hint,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -417,12 +529,23 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
           children: [
             Icon(icon, size: 18, color: primaryColor),
             const SizedBox(width: 8),
-            Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textSecondary)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: textSecondary,
+              ),
+            ),
           ],
         ),
         TextField(
           controller: controller,
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textPrimary),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: textPrimary,
+          ),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: outlineColor, fontSize: 14),
@@ -435,18 +558,11 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
     );
   }
 
-  Future<void> _addTime(int routeIndex) async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
-    if (picked != null) {
-      setState(() => _schedules[routeIndex]['times'].add(picked.format(context)));
-    }
-  }
-
   Future<void> _addNewRoute() async {
-    final Map<String, dynamic>? data = await AddRouteDialog.show(context, widget.ports);
+    final Map<String, dynamic>? data = await AddRouteDialog.show(
+      context,
+      widget.ports,
+    );
     if (data != null) setState(() => _schedules.add(data));
   }
 
@@ -456,7 +572,10 @@ class _AddEditShippingLineState extends State<AddEditShippingLine> {
   }
 
   Future<void> _editFare(int index) async {
-    final Map<String, String>? data = await AddEditFare.show(context, fare: _fares[index]);
+    final Map<String, String>? data = await AddEditFare.show(
+      context,
+      fare: _fares[index],
+    );
     if (data != null) setState(() => _fares[index] = data);
   }
 

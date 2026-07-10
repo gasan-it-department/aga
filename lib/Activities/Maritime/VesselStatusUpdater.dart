@@ -5,6 +5,7 @@ import 'package:gasan_port_tracker/Utility/Utility.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gasan_port_tracker/Colors/IndicatorColors.dart';
 import 'SubActivities/UpdateVesselStatus.dart';
+import '../../Maritime/MaritimeDataMapper.dart';
 
 class VesselStatusUpdater extends StatefulWidget {
   const VesselStatusUpdater({super.key});
@@ -36,12 +37,16 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   String? _selectedPortId;
 
   Timer? _debounce;
+  Timer? _countdownTimer;
   final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _initializeData();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _vessels.isNotEmpty) setState(() {});
+    });
   }
 
   Future<void> _initializeData() async {
@@ -54,17 +59,33 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   void dispose() {
     _searchController.dispose();
     _debounce?.cancel();
+    _countdownTimer?.cancel();
     super.dispose();
+  }
+
+  String _remainingTime(int endEpoch) {
+    final remaining = endEpoch - DateTime.now().millisecondsSinceEpoch;
+    if (remaining <= 0) return "Awaiting status update";
+    final totalSeconds = remaining ~/ 1000;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    if (hours > 0) return "${hours}h ${minutes}m ${seconds}s";
+    return "${minutes}m ${seconds}s";
   }
 
   Future<void> _fetchPorts() async {
     try {
-      final response = await supabase.from('ports').select('port_id, port_name').order('port_name');
+      final response = await supabase
+          .from('ports')
+          .select('port_id, port_name')
+          .order('port_name');
       if (mounted) {
         setState(() {
           _portsList = List<Map<String, dynamic>>.from(response);
           for (var port in _portsList) {
-            _portsMap[port['port_id'].toString()] = port['port_name'].toString();
+            _portsMap[port['port_id'].toString()] = port['port_name']
+                .toString();
           }
         });
       }
@@ -75,7 +96,10 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
 
   Future<void> _fetchShippingLines() async {
     try {
-      final response = await supabase.from('shipping_lines').select('shipping_line_id, shipping_line_name').order('shipping_line_name');
+      final response = await supabase
+          .from('shipping_lines')
+          .select('shipping_line_id, shipping_line_name')
+          .order('shipping_line_name');
       if (mounted) {
         setState(() {
           _shippingLines = List<Map<String, dynamic>>.from(response);
@@ -93,17 +117,34 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
     });
 
     try {
-      var query = supabase.from('vessels').select('*, shipping_lines(shipping_line_name)');
+      var query = supabase
+          .from('vessels')
+          .select(
+            '*, shipping_lines(shipping_line_name), vessel_operations(*)',
+          );
 
-      if (_searchQuery.isNotEmpty) query = query.ilike('vessel_name', '%$_searchQuery%');
-      if (_selectedShippingLineId != null) query = query.eq('shipping_line_id', _selectedShippingLineId!);
-      if (_selectedPortId != null) query = query.eq('vessel_current_port', _selectedPortId!);
-
+      if (_searchQuery.isNotEmpty)
+        query = query.ilike('vessel_name', '%$_searchQuery%');
+      if (_selectedShippingLineId != null)
+        query = query.eq('shipping_line_id', _selectedShippingLineId!);
       final response = await query.order('vessel_name', ascending: true);
+      final normalized = MaritimeDataMapper.normalizeVessels(
+        supabase,
+        response,
+      );
+      final filtered = _selectedPortId == null
+          ? normalized
+          : normalized.where((vessel) {
+              final status = vessel['vessel_status'];
+              return vessel['vessel_current_port']?.toString() ==
+                      _selectedPortId ||
+                  status?['origin']?.toString() == _selectedPortId ||
+                  status?['destination']?.toString() == _selectedPortId;
+            }).toList();
 
       if (mounted) {
         setState(() {
-          _vessels = List<Map<String, dynamic>>.from(response);
+          _vessels = filtered;
           _isLoading = false;
         });
       }
@@ -160,13 +201,25 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
                 fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    height: 200, width: double.infinity, color: Colors.white,
+                    height: 200,
+                    width: double.infinity,
+                    color: Colors.white,
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.broken_image_rounded, size: 48, color: textSecondary.withValues(alpha: 0.5)),
+                        Icon(
+                          Icons.broken_image_rounded,
+                          size: 48,
+                          color: textSecondary.withValues(alpha: 0.5),
+                        ),
                         const SizedBox(height: 8),
-                        Text("Image could not be loaded", style: TextStyle(color: textSecondary, fontWeight: FontWeight.bold)),
+                        Text(
+                          "Image could not be loaded",
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ],
                     ),
                   );
@@ -174,13 +227,21 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
               ),
             ),
             Positioned(
-              top: 8, right: 8,
+              top: 8,
+              right: 8,
               child: GestureDetector(
                 onTap: () => Navigator.pop(context),
                 child: Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                  child: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                 ),
               ),
             ),
@@ -193,127 +254,237 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        backgroundColor: bgColor,
-        appBar: AppBar(
-          title: const Text("Vessel Status Updater"),
-          backgroundColor: Colors.white,
-          foregroundColor: primaryDark,
-          elevation: 0,
-          centerTitle: false,
-          titleTextStyle: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: primaryDark, letterSpacing: -0.5),
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        title: const Text("Vessel Status Updater"),
+        backgroundColor: Colors.white,
+        foregroundColor: primaryDark,
+        elevation: 0,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          fontWeight: FontWeight.w900,
+          fontSize: 18,
+          color: primaryDark,
+          letterSpacing: -0.5,
         ),
+      ),
 
-        body: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border(bottom: BorderSide(color: outlineColor)),
-                      boxShadow: [BoxShadow(color: primaryDark.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))]
-                  ),
-                  child: Column(
-                    children: [
-                      // --- SEARCH BAR ---
-                      TextField(
-                        controller: _searchController,
-                        onChanged: _onSearchChanged,
-                        style: TextStyle(fontSize: 14, color: textPrimary, fontWeight: FontWeight.w600),
-                        decoration: InputDecoration(
-                          hintText: "Search vessel name...",
-                          hintStyle: TextStyle(color: textSecondary.withValues(alpha: 0.6)),
-                          prefixIcon: Icon(Icons.search_rounded, color: textSecondary),
-                          filled: true,
-                          fillColor: bgColor,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 0),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: outlineColor)),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: accentBlue, width: 1.5)),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border(bottom: BorderSide(color: outlineColor)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: primaryDark.withValues(alpha: 0.02),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    // --- SEARCH BAR ---
+                    TextField(
+                      controller: _searchController,
+                      onChanged: _onSearchChanged,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: "Search vessel name...",
+                        hintStyle: TextStyle(
+                          color: textSecondary.withValues(alpha: 0.6),
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: textSecondary,
+                        ),
+                        filled: true,
+                        fillColor: bgColor,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: outlineColor),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: accentBlue, width: 1.5),
                         ),
                       ),
-
-                      const SizedBox(height: 12),
-
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                              decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: outlineColor)),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  isExpanded: true,
-                                  value: _selectedShippingLineId,
-                                  hint: Text("Lines", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: textSecondary)),
-                                  icon: Icon(Icons.business_rounded, size: 16, color: textSecondary),
-                                  items: [
-                                    DropdownMenuItem(value: null, child: Text("All Lines", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: primaryDark))),
-                                    ..._shippingLines.map((line) => DropdownMenuItem(
-                                      value: line['shipping_line_id'].toString(),
-                                      child: Text(line['shipping_line_name'].toString(), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: primaryDark), overflow: TextOverflow.ellipsis),
-                                    ))
-                                  ],
-                                  onChanged: _onLineFilterChanged,
-                                ),
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(width: 8),
-
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                              decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: outlineColor)),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  isExpanded: true,
-                                  value: _selectedPortId,
-                                  hint: Text("Ports", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: textSecondary)),
-                                  icon: Icon(Icons.anchor_rounded, size: 16, color: textSecondary),
-                                  items: [
-                                    DropdownMenuItem(value: null, child: Text("All Ports", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: primaryDark))),
-                                    ..._portsList.map((port) => DropdownMenuItem(
-                                      value: port['port_id'].toString(),
-                                      child: Text(port['port_name'].toString(), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: primaryDark), overflow: TextOverflow.ellipsis),
-                                    ))
-                                  ],
-                                  onChanged: _onPortFilterChanged,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                Expanded(
-                  child: _isLoading
-                      ? Center(child: CircularProgressIndicator(color: accentBlue))
-                      : _vessels.isEmpty
-                      ? _buildEmptyState()
-                      : RefreshIndicator(
-                    onRefresh: () => _fetchVessels(),
-                    color: accentBlue,
-                    child: ListView.builder(
-                      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _vessels.length,
-                      itemBuilder: (context, index) {
-                        return _buildVesselCard(_vessels[index]);
-                      },
                     ),
-                  ),
+
+                    const SizedBox(height: 12),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: bgColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: outlineColor),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                isExpanded: true,
+                                value: _selectedShippingLineId,
+                                hint: Text(
+                                  "Lines",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: textSecondary,
+                                  ),
+                                ),
+                                icon: Icon(
+                                  Icons.business_rounded,
+                                  size: 16,
+                                  color: textSecondary,
+                                ),
+                                items: [
+                                  DropdownMenuItem(
+                                    value: null,
+                                    child: Text(
+                                      "All Lines",
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: primaryDark,
+                                      ),
+                                    ),
+                                  ),
+                                  ..._shippingLines.map(
+                                    (line) => DropdownMenuItem(
+                                      value: line['shipping_line_id']
+                                          .toString(),
+                                      child: Text(
+                                        line['shipping_line_name'].toString(),
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: primaryDark,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                onChanged: _onLineFilterChanged,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(width: 8),
+
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: bgColor,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: outlineColor),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                isExpanded: true,
+                                value: _selectedPortId,
+                                hint: Text(
+                                  "Ports",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: textSecondary,
+                                  ),
+                                ),
+                                icon: Icon(
+                                  Icons.anchor_rounded,
+                                  size: 16,
+                                  color: textSecondary,
+                                ),
+                                items: [
+                                  DropdownMenuItem(
+                                    value: null,
+                                    child: Text(
+                                      "All Ports",
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: primaryDark,
+                                      ),
+                                    ),
+                                  ),
+                                  ..._portsList.map(
+                                    (port) => DropdownMenuItem(
+                                      value: port['port_id'].toString(),
+                                      child: Text(
+                                        port['port_name'].toString(),
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: primaryDark,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                onChanged: _onPortFilterChanged,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+
+              Expanded(
+                child: _isLoading
+                    ? Center(
+                        child: CircularProgressIndicator(color: accentBlue),
+                      )
+                    : _vessels.isEmpty
+                    ? _buildEmptyState()
+                    : RefreshIndicator(
+                        onRefresh: () => _fetchVessels(),
+                        color: accentBlue,
+                        child: ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(
+                            parent: BouncingScrollPhysics(),
+                          ),
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _vessels.length,
+                          itemBuilder: (context, index) {
+                            return _buildVesselCard(_vessels[index]);
+                          },
+                        ),
+                      ),
+              ),
+            ],
           ),
-        )
+        ),
+      ),
     );
   }
 
@@ -340,82 +511,122 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   Widget _buildVesselCard(Map<String, dynamic> vessel) {
     String vesselName = vessel['vessel_name'] ?? 'Unknown Vessel';
     String vesselId = vessel['vessel_id'] ?? 'null';
-    String lineName = vessel['shipping_lines']?['shipping_line_name'] ?? 'Unknown Shipping Line';
+    String lineName =
+        vessel['shipping_lines']?['shipping_line_name'] ??
+        'Unknown Shipping Line';
 
-    String displayStatus = "Docked";
+    String displayStatus = "No Schedule";
     String? proofUrl;
 
     String? passOriginId;
     String? passDestId;
     int? passOnboardingDuration;
+    String dockedState = 'docked';
 
     final dynamic statusData = vessel['vessel_status'];
     if (statusData is Map) {
-      displayStatus = (statusData['status'] ?? "Docked").toString().trim();
+      displayStatus = (statusData['status'] ?? "no_schedule").toString().trim();
       proofUrl = statusData['image_proof']?.toString();
       if (proofUrl != null && proofUrl.isEmpty) proofUrl = null;
 
       passOriginId = statusData['origin']?.toString();
       passDestId = statusData['destination']?.toString();
-      passOnboardingDuration = int.tryParse(statusData['onboarding_duration_minutes']?.toString() ?? "0");
+      passOnboardingDuration = int.tryParse(
+        statusData['onboarding_duration_minutes']?.toString() ?? "0",
+      );
+      dockedState = statusData['docked_state']?.toString() ?? 'docked';
     } else {
-      displayStatus = statusData?.toString().trim() ?? "Docked";
+      displayStatus = statusData?.toString().trim() ?? "No Schedule";
     }
 
     passOriginId ??= vessel['vessel_current_port']?.toString();
 
     final StatusColors statusColors = IndicatorColors.getColors(displayStatus);
+    final displayLabel =
+        displayStatus.toLowerCase() == 'docked' && dockedState != 'docked'
+        ? "Docked | ${dockedState == 'tba' ? 'TBA' : 'Preparing'}"
+        : displayStatus.replaceAll('_', ' ');
 
-    final bool isDockedOrMaintenance = ['docked', 'maintenance'].contains(displayStatus.toLowerCase());
+    final bool isDockedOrMaintenance = [
+      'no_schedule',
+      'no schedule',
+    ].contains(displayStatus.toLowerCase());
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-          color: statusColors.background,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: statusColors.border),
-          boxShadow: [BoxShadow(color: primaryDark.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))]
+        color: statusColors.background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: statusColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: primaryDark.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         children: [
           Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(vesselName, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: primaryDark)),
-                            Text(lineName, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: textSecondary)),
-                          ],
-                        ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vesselName,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: primaryDark,
+                            ),
+                          ),
+                          Text(
+                            lineName,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      _buildDynamicStatusBadge(displayStatus, statusColors),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 12),
+                    _buildDynamicStatusBadge(displayLabel, statusColors),
+                  ],
+                ),
 
-                  // --- CONDITIONAL DETAILS BOX ---
-                  if (!isDockedOrMaintenance) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: statusColors.border)
-                      ),
-                      child: _buildDetailedStatus(statusData, displayStatus, statusColors),
-                    )
-                  ]
+                // --- CONDITIONAL DETAILS BOX ---
+                if (!isDockedOrMaintenance) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: statusColors.border),
+                    ),
+                    child: _buildDetailedStatus(
+                      statusData,
+                      displayStatus,
+                      statusColors,
+                    ),
+                  ),
                 ],
-              )
+              ],
+            ),
           ),
 
           Divider(height: 1, color: statusColors.border),
@@ -434,23 +645,40 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
                         _showProofImage(proofUrl);
                       } else {
                         _classicDialog.setTitle("No Image Available");
-                        _classicDialog.setMessage("There is no image proof yet.");
+                        _classicDialog.setMessage(
+                          "There is no image proof yet.",
+                        );
                         _classicDialog.setCancelable(false);
                         _classicDialog.setPositiveMessage("Close");
-                        _classicDialog.showOnButtonDialog(context, (){
+                        _classicDialog.showOnButtonDialog(context, () {
                           _classicDialog.dismissDialog();
                         });
                       }
                     },
-                    borderRadius: const BorderRadius.only(bottomLeft: Radius.circular(16)),
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(16),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(proofUrl != null ? Icons.image_search_rounded : Icons.hide_image_rounded, size: 18, color: textSecondary),
+                          Icon(
+                            proofUrl != null
+                                ? Icons.image_search_rounded
+                                : Icons.hide_image_rounded,
+                            size: 18,
+                            color: textSecondary,
+                          ),
                           const SizedBox(width: 8),
-                          Text("Image Proof", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: textSecondary)),
+                          Text(
+                            "Image Proof",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: textSecondary,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -463,29 +691,43 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
                   child: InkWell(
                     onTap: () async {
                       await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => UpdateVesselStatus(
-                                vesselId: vesselId,
-                                vesselName: vesselName,
-                                currentStatus: displayStatus,
-                                originId: passOriginId,
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => UpdateVesselStatus(
+                            vesselId: vesselId,
+                            vesselName: vesselName,
+                            currentStatus: displayStatus,
+                            originId: passOriginId,
                                 destinationId: passDestId,
                                 onboardingDuration: passOnboardingDuration,
-                              )
-                          )
+                                dockedState: dockedState,
+                          ),
+                        ),
                       );
                       _fetchVessels();
                     },
-                    borderRadius: const BorderRadius.only(bottomRight: Radius.circular(16)),
+                    borderRadius: const BorderRadius.only(
+                      bottomRight: Radius.circular(16),
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.edit_note_rounded, size: 18, color: accentBlue),
+                          Icon(
+                            Icons.edit_note_rounded,
+                            size: 18,
+                            color: accentBlue,
+                          ),
                           const SizedBox(width: 8),
-                          Text("Update Status", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: accentBlue)),
+                          Text(
+                            "Update Status",
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: accentBlue,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -493,15 +735,24 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
                 ),
               ],
             ),
-          )
+          ),
         ],
       ),
     );
   }
 
   // --- Passed statusColors to properly theme the inner details ---
-  Widget _buildDetailedStatus(dynamic statusData, String statusLabel, StatusColors statusColors) {
-    if (statusData == null || statusData is! Map) return _buildInfoRow(Icons.help_outline, "No recent route data", color: textSecondary);
+  Widget _buildDetailedStatus(
+    dynamic statusData,
+    String statusLabel,
+    StatusColors statusColors,
+  ) {
+    if (statusData == null || statusData is! Map)
+      return _buildInfoRow(
+        Icons.help_outline,
+        "No recent route data",
+        color: textSecondary,
+      );
 
     String status = statusLabel.toLowerCase();
     String originId = statusData['origin']?.toString() ?? '';
@@ -509,35 +760,75 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
 
     int departed = int.tryParse(statusData['departed']?.toString() ?? '0') ?? 0;
     int arrival = int.tryParse(statusData['arrival']?.toString() ?? '0') ?? 0;
-    int onboarding = int.tryParse(statusData['onboarding_time']?.toString() ?? '0') ?? 0;
+    int onboarding =
+        int.tryParse(statusData['onboarding_time']?.toString() ?? '0') ?? 0;
+    int estimatedLatest =
+        int.tryParse(
+          statusData['estimated_transition_latest']?.toString() ?? '0',
+        ) ??
+        0;
+    String dockedState = statusData['docked_state']?.toString() ?? 'docked';
 
     String originName = _portsMap[originId] ?? 'Unknown Port';
     String destName = _portsMap[destId] ?? 'Unknown Port';
 
-    if (['departed', 'arrived', 'onboarding', 'standby'].contains(status)) {
+    if (['docked', 'departed', 'arrived', 'onboarding'].contains(status)) {
       List<Widget> children = [
-        _buildInfoRow(Icons.route_rounded, "$originName  →  $destName", color: textPrimary),
+        _buildInfoRow(
+          status == 'docked' ? Icons.anchor_rounded : Icons.route_rounded,
+          status == 'docked' ? originName : "$originName  →  $destName",
+          color: textPrimary,
+        ),
       ];
 
-      if (status == 'departed') {
+      if (status == 'docked') {
         children.addAll([
           const SizedBox(height: 4),
-          _buildInfoRow(Icons.logout_rounded, "Departed at: ${_formatTime(departed)}", color: statusColors.text),
+          _buildInfoRow(
+            Icons.local_gas_station_rounded,
+            dockedState == 'preparing' && estimatedLatest > 0
+                ? "Preparing: ${_remainingTime(estimatedLatest)}"
+                : dockedState == 'tba'
+                ? "Selected to depart"
+                : "Docked · No timer",
+            color: statusColors.text,
+          ),
+        ]);
+      } else if (status == 'departed') {
+        children.addAll([
+          const SizedBox(height: 4),
+          _buildInfoRow(
+            Icons.logout_rounded,
+            "Departed at: ${_formatTime(departed)}",
+            color: statusColors.text,
+          ),
         ]);
       } else if (status == 'arrived') {
         children.addAll([
           const SizedBox(height: 4),
-          _buildInfoRow(Icons.login_rounded, "Arrived at: ${_formatTime(arrival)}", color: statusColors.text),
+          _buildInfoRow(
+            Icons.login_rounded,
+            "Arrived at: ${_formatTime(arrival)}",
+            color: statusColors.text,
+          ),
         ]);
       } else if (status == 'onboarding') {
         children.addAll([
           const SizedBox(height: 4),
-          _buildInfoRow(Icons.timer_outlined, "Onboarding at: ${_formatTime(onboarding)}", color: statusColors.text),
+          _buildInfoRow(
+            Icons.timer_outlined,
+            "Onboarding at: ${_formatTime(onboarding)}",
+            color: statusColors.text,
+          ),
         ]);
       } else if (status == 'standby') {
         children.addAll([
           const SizedBox(height: 4),
-          _buildInfoRow(Icons.access_time_rounded, "Awaiting departure", color: statusColors.text),
+          _buildInfoRow(
+            Icons.access_time_rounded,
+            "Awaiting departure",
+            color: statusColors.text,
+          ),
         ]);
       }
 
@@ -559,7 +850,11 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
         Expanded(
           child: Text(
             text,
-            style: TextStyle(fontSize: 12, color: color ?? textSecondary, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontSize: 12,
+              color: color ?? textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -574,13 +869,30 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
         children: [
           Container(
             padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(color: outlineColor.withValues(alpha: 0.5), shape: BoxShape.circle),
-            child: const Icon(Icons.search_off_rounded, size: 40, color: Color(0xFF94A3B8)),
+            decoration: BoxDecoration(
+              color: outlineColor.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.search_off_rounded,
+              size: 40,
+              color: Color(0xFF94A3B8),
+            ),
           ),
           const SizedBox(height: 16),
-          Text("No vessels found", style: TextStyle(color: textPrimary, fontWeight: FontWeight.w900, fontSize: 16)),
+          Text(
+            "No vessels found",
+            style: TextStyle(
+              color: textPrimary,
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text("Try adjusting your search or filter.", style: TextStyle(color: textSecondary, fontSize: 13)),
+          Text(
+            "Try adjusting your search or filter.",
+            style: TextStyle(color: textSecondary, fontSize: 13),
+          ),
         ],
       ),
     );

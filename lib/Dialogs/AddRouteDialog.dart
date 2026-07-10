@@ -9,16 +9,14 @@ class AddRouteDialog extends StatefulWidget {
 
   // 2. Updated the show method to accept optional initialRoute
   static Future<Map<String, dynamic>?> show(
-      BuildContext context,
-      List<Map<String, dynamic>>? portList, {
-        Map<String, dynamic>? initialRoute,
-      }) async {
+    BuildContext context,
+    List<Map<String, dynamic>>? portList, {
+    Map<String, dynamic>? initialRoute,
+  }) async {
     return await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (context) => AddRouteDialog(
-        ports: portList,
-        initialRoute: initialRoute,
-      ),
+      builder: (context) =>
+          AddRouteDialog(ports: portList, initialRoute: initialRoute),
     );
   }
 
@@ -31,7 +29,7 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
   String? _selectedOrigin;
   String? _selectedDestination;
   String? _selectedShipType;
-  String _scheduleStatus = "Fixed";
+  String _scheduleStatus = "Flexible";
 
   final Color primaryColor = const Color(0xFF0A2E5C);
   final Color outlineColor = const Color(0xFFCBD5E1);
@@ -51,22 +49,28 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
       }
 
       _selectedShipType = widget.initialRoute!['shipType'];
-      _scheduleStatus = widget.initialRoute!['status'] ?? "Fixed";
+      _scheduleStatus = "Flexible";
     }
   }
 
   @override
   Widget build(BuildContext context) {
     // Extract names from the ports list provided by the parent
-    final List<String> availablePorts = widget.ports?.map((e) => e['port_name'].toString()).toList() ?? [];
+    final List<String> availablePorts =
+        widget.ports?.map((e) => e['port_name'].toString()).toList() ?? [];
 
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(
-          widget.initialRoute != null ? "Edit Route Details" : "Route Details",
-          style: const TextStyle(fontWeight: FontWeight.bold)
+        widget.initialRoute != null ? "Edit Route Details" : "Route Details",
+        style: const TextStyle(fontWeight: FontWeight.bold),
       ),
-      contentPadding: const EdgeInsets.only(left: 24, right: 24, top: 16, bottom: 24),
+      contentPadding: const EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 16,
+        bottom: 24,
+      ),
       content: SizedBox(
         width: double.maxFinite,
         child: SingleChildScrollView(
@@ -75,7 +79,14 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // --- Origin Dropdown ---
-              const Text("ORIGIN", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const Text(
+                "ORIGIN",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
               const SizedBox(height: 8),
               _buildDropdown(
                 hint: "Select Origin Port",
@@ -86,11 +97,26 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
 
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12.0),
-                child: Center(child: Text("TO", style: TextStyle(fontWeight: FontWeight.w900, color: Colors.grey))),
+                child: Center(
+                  child: Text(
+                    "TO",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ),
               ),
 
               // --- Destination Dropdown ---
-              const Text("DESTINATION", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const Text(
+                "DESTINATION",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
               const SizedBox(height: 8),
               _buildDropdown(
                 hint: "Select Destination Port",
@@ -102,7 +128,14 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
               const SizedBox(height: 24),
 
               // --- Ship Type Dropdown ---
-              const Text("VESSEL TYPE", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const Text(
+                "VESSEL TYPE",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
               const SizedBox(height: 8),
               _buildDropdown(
                 hint: "Select Ship Type",
@@ -114,11 +147,18 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
               const SizedBox(height: 24),
 
               // --- Schedule Status ---
-              const Text("SCHEDULE STATUS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+              const Text(
+                "SCHEDULE STATUS",
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
               DropdownButton<String>(
                 isExpanded: true,
                 value: _scheduleStatus,
-                items: ["Fixed", "Tentative"].map((String value) {
+                items: ["Flexible"].map((String value) {
                   return DropdownMenuItem<String>(
                     value: value,
                     child: Text(value),
@@ -143,7 +183,13 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
                         ),
                       ),
                       onPressed: () => Navigator.pop(context),
-                      child: const Text("CANCEL", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                      child: const Text(
+                        "CANCEL",
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -152,19 +198,29 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                       onPressed: () {
-                        if (_selectedOrigin == null || _selectedDestination == null || _selectedShipType == null) {
+                        if (_selectedOrigin == null ||
+                            _selectedDestination == null ||
+                            _selectedShipType == null) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("Please fill in all fields!"))
+                            const SnackBar(
+                              content: Text("Please fill in all fields!"),
+                            ),
                           );
                           return;
                         }
 
                         if (_selectedOrigin == _selectedDestination) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("Origin and Destination cannot be the same!"))
+                            const SnackBar(
+                              content: Text(
+                                "Origin and Destination cannot be the same!",
+                              ),
+                            ),
                           );
                           return;
                         }
@@ -174,13 +230,18 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
                           'status': _scheduleStatus,
                           'shipType': _selectedShipType,
                           // 4. Preserve the existing times if editing!
-                          'times': widget.initialRoute?['times'] ?? <String>[]
+                          'times': widget.initialRoute?['times'] ?? <String>[],
                         });
                       },
                       // 5. Dynamic button text
                       child: Text(
-                          widget.initialRoute != null ? "SAVE CHANGES" : "ADD ROUTE",
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                        widget.initialRoute != null
+                            ? "SAVE CHANGES"
+                            : "ADD ROUTE",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
@@ -197,7 +258,7 @@ class _AddRouteDialogState extends State<AddRouteDialog> {
     required String hint,
     required String? value,
     required List<String> items,
-    required ValueChanged<String?> onChanged
+    required ValueChanged<String?> onChanged,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),

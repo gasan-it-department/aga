@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../FloatingMessages/SnackbarMessenger.dart';
 import '../../Maritime/MaritimeActivityLogger.dart';
+import '../../Maritime/MaritimeDataMapper.dart';
 import '../../Utility/SearchBarView.dart';
 import 'package:gasan_port_tracker/Dialogs/ClassicDialog.dart';
 import 'package:gasan_port_tracker/Dialogs/LoadingDialog.dart';
@@ -56,7 +57,8 @@ class _VesselsManagementState extends State<VesselsManagement> {
     _fetchVessels();
 
     _scrollController.addListener(() {
-      if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (_scrollController.position.pixels >=
+          _scrollController.position.maxScrollExtent - 200) {
         _loadMoreVessels();
       }
     });
@@ -97,19 +99,22 @@ class _VesselsManagementState extends State<VesselsManagement> {
     _hasMore = true;
 
     try {
-      var query = supabase.from('vessels').select().eq('shipping_line_id', widget.shippingLine['shipping_line_id']);
+      var query = supabase
+          .from('vessels')
+          .select('*, vessel_operations(*)')
+          .eq('shipping_line_id', widget.shippingLine['shipping_line_id']);
 
       if (_searchQuery.isNotEmpty) {
         query = query.ilike('vessel_name', '%$_searchQuery%');
       }
 
       final data = await query
-          .order('vessel_added_date', ascending: false)
+          .order('created_at', ascending: false)
           .range(_offset, _offset + _limit - 1);
 
       if (mounted) {
         setState(() {
-          _vessels = List<Map<String, dynamic>>.from(data);
+          _vessels = MaritimeDataMapper.normalizeVessels(supabase, data);
           _isLoading = false;
           if (data.length < _limit) _hasMore = false;
         });
@@ -127,19 +132,22 @@ class _VesselsManagementState extends State<VesselsManagement> {
     _offset += _limit;
 
     try {
-      var query = supabase.from('vessels').select().eq('shipping_line_id', widget.shippingLine['shipping_line_id']);
+      var query = supabase
+          .from('vessels')
+          .select('*, vessel_operations(*)')
+          .eq('shipping_line_id', widget.shippingLine['shipping_line_id']);
 
       if (_searchQuery.isNotEmpty) {
         query = query.ilike('vessel_name', '%$_searchQuery%');
       }
 
       final data = await query
-          .order('vessel_added_date', ascending: false)
+          .order('created_at', ascending: false)
           .range(_offset, _offset + _limit - 1);
 
       if (mounted) {
         setState(() {
-          _vessels.addAll(List<Map<String, dynamic>>.from(data));
+          _vessels.addAll(MaritimeDataMapper.normalizeVessels(supabase, data));
           _isLoadingMore = false;
           if (data.length < _limit) _hasMore = false;
         });
@@ -164,57 +172,71 @@ class _VesselsManagementState extends State<VesselsManagement> {
 
   void _deleteVessel(Map<String, dynamic> vessel) {
     _classicDialog.setTitle("Delete Vessel");
-    _classicDialog.setMessage("Permanently remove ${vessel['vessel_name']}?\n\nThis action cannot be undone.");
+    _classicDialog.setMessage(
+      "Permanently remove ${vessel['vessel_name']}?\n\nThis action cannot be undone.",
+    );
     _classicDialog.setNegativeMessage("CANCEL");
     _classicDialog.setPositiveMessage("DELETE");
     _classicDialog.setCancelable(true);
 
     if (mounted) {
       _classicDialog.showTwoButtonDialog(
-          context,
-              (negativeClicked) => _classicDialog.dismissDialog(),
-              (positiveClicked) async {
-            _classicDialog.dismissDialog();
-            _loadingDialog.showLoadingDialog(context);
+        context,
+        (negativeClicked) => _classicDialog.dismissDialog(),
+        (positiveClicked) async {
+          _classicDialog.dismissDialog();
+          _loadingDialog.showLoadingDialog(context);
 
-            try {
-              final List<dynamic> response = await supabase
-                  .from('vessels')
-                  .delete()
-                  .eq('vessel_id', vessel['vessel_id'])
-                  .select();
+          try {
+            final List<dynamic> response = await supabase
+                .from('vessels')
+                .delete()
+                .eq('vessel_id', vessel['vessel_id'])
+                .select();
 
-              if (response.isEmpty) {
-                throw Exception("Deletion blocked by the database. Please check your Supabase Row Level Security (RLS) policies.");
-              }
-
-              String userName = _preferences?.getString("user_name") ?? "An Admin";
-              String assignedPort = _preferences?.getString("assigned_port") ?? "Unknown Port";
-              String userId = _preferences?.getString("user_id") ?? "unknown_user_id";
-              String vesselName = vessel['vessel_name'].toString().toUpperCase();
-
-              await MaritimeActivityLogger.createLog(
-                  title: "Vessel Deleted",
-                  message: "$vesselName was permanently deleted by [$assignedPort] - $userName.",
-                  creatorId: userId
+            if (response.isEmpty) {
+              throw Exception(
+                "Deletion blocked by the database. Please check your Supabase Row Level Security (RLS) policies.",
               );
-
-              _loadingDialog.dismiss();
-
-              setState(() {
-                _vessels.removeWhere((v) => v['vessel_id'] == vessel['vessel_id']);
-                if (_offset > 0) _offset--;
-              });
-
-              if (mounted) {
-                SnackbarMessenger().showSnackbar(context, SnackbarMessenger.success, "${vessel['vessel_name']} was deleted.");
-              }
-            } catch (e) {
-              Utility().printLog("Error: ${e.toString()}");
-              _loadingDialog.dismiss();
-              _showErrorDialog(e.toString());
             }
+
+            String userName =
+                _preferences?.getString("user_name") ?? "An Admin";
+            String assignedPort =
+                _preferences?.getString("assigned_port") ?? "Unknown Port";
+            String userId =
+                _preferences?.getString("user_id") ?? "unknown_user_id";
+            String vesselName = vessel['vessel_name'].toString().toUpperCase();
+
+            await MaritimeActivityLogger.createLog(
+              title: "Vessel Deleted",
+              message:
+                  "$vesselName was permanently deleted by [$assignedPort] - $userName.",
+              creatorId: userId,
+            );
+
+            _loadingDialog.dismiss();
+
+            setState(() {
+              _vessels.removeWhere(
+                (v) => v['vessel_id'] == vessel['vessel_id'],
+              );
+              if (_offset > 0) _offset--;
+            });
+
+            if (mounted) {
+              SnackbarMessenger().showSnackbar(
+                context,
+                SnackbarMessenger.success,
+                "${vessel['vessel_name']} was deleted.",
+              );
+            }
+          } catch (e) {
+            Utility().printLog("Error: ${e.toString()}");
+            _loadingDialog.dismiss();
+            _showErrorDialog(e.toString());
           }
+        },
       );
     }
   }
@@ -233,49 +255,70 @@ class _VesselsManagementState extends State<VesselsManagement> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(height: 4, width: 40, decoration: BoxDecoration(color: outlineColor, borderRadius: BorderRadius.circular(2))),
+              Container(
+                height: 4,
+                width: 40,
+                decoration: BoxDecoration(
+                  color: outlineColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
               const SizedBox(height: 20),
-              Text(vessel['vessel_name'] ?? "Options", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: textPrimary)),
+              Text(
+                vessel['vessel_name'] ?? "Options",
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  color: textPrimary,
+                ),
+              ),
               const SizedBox(height: 20),
 
               _buildSheetItem(
-                  icon: Icons.edit_rounded,
-                  label: "Edit Details",
-                  color: primaryColor,
-                  onTap: () async {
-                    Navigator.pop(context);
-                    final dynamic result = await Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => AddEditVessel(vessel: vessel, shippingLineId: widget.shippingLine['shipping_line_id'])),
-                    );
+                icon: Icons.edit_rounded,
+                label: "Edit Details",
+                color: primaryColor,
+                onTap: () async {
+                  Navigator.pop(context);
+                  final dynamic result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AddEditVessel(
+                        vessel: vessel,
+                        shippingLineId: widget.shippingLine['shipping_line_id'],
+                      ),
+                    ),
+                  );
 
-                    if (result != null && result is Map<String, dynamic>) {
-                      if (_searchQuery.isNotEmpty) {
-                        setState(() {
-                          _searchQuery = "";
-                          _searchController.clear();
-                        });
-                        _fetchVessels(isRefresh: true);
-                      } else {
-                        setState(() {
-                          final index = _vessels.indexWhere((v) => v['vessel_id'] == vessel['vessel_id']);
-                          if (index != -1) {
-                            _vessels[index] = { ..._vessels[index], ...result };
-                          }
-                        });
-                      }
+                  if (result != null && result is Map<String, dynamic>) {
+                    if (_searchQuery.isNotEmpty) {
+                      setState(() {
+                        _searchQuery = "";
+                        _searchController.clear();
+                      });
+                      _fetchVessels(isRefresh: true);
+                    } else {
+                      setState(() {
+                        final index = _vessels.indexWhere(
+                          (v) => v['vessel_id'] == vessel['vessel_id'],
+                        );
+                        if (index != -1) {
+                          _vessels[index] = {..._vessels[index], ...result};
+                        }
+                      });
                     }
                   }
+                },
               ),
 
               _buildSheetItem(
-                  icon: Icons.delete_forever_rounded,
-                  label: "Delete Permanently",
-                  color: Colors.redAccent,
-                  onTap: () {
-                    Navigator.pop(context);
-                    _deleteVessel(vessel);
-                  }
+                icon: Icons.delete_forever_rounded,
+                label: "Delete Permanently",
+                color: Colors.redAccent,
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteVessel(vessel);
+                },
               ),
               const SizedBox(height: 12),
             ],
@@ -285,12 +328,21 @@ class _VesselsManagementState extends State<VesselsManagement> {
     );
   }
 
-  Widget _buildSheetItem({required IconData icon, required String label, required Color color, required VoidCallback onTap}) {
+  Widget _buildSheetItem({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
     return ListTile(
       leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-          child: Icon(icon, color: color)),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: color),
+      ),
       title: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
       onTap: onTap,
     );
@@ -311,87 +363,110 @@ class _VesselsManagementState extends State<VesselsManagement> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        backgroundColor: bgColor,
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          foregroundColor: primaryColor,
-          elevation: 0,
-          centerTitle: false,
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("Fleet Management", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-              Text(widget.shippingLine['shipping_line_name'], style: TextStyle(fontSize: 12, color: textSecondary)),
-            ],
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline_rounded, size: 26),
-              tooltip: "Register Vessel",
-              onPressed: () async {
-                final dynamic result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => AddEditVessel(shippingLineId: widget.shippingLine['shipping_line_id'])),
-                );
-
-                if (result != null && result is Map<String, dynamic>) {
-                  setState(() {
-                    _vessels.insert(0, result);
-                    _offset++;
-                  });
-                }
-              },
+      backgroundColor: bgColor,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: primaryColor,
+        elevation: 0,
+        centerTitle: false,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              "Fleet Management",
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
             ),
-            const SizedBox(width: 8),
+            Text(
+              widget.shippingLine['shipping_line_name'],
+              style: TextStyle(fontSize: 12, color: textSecondary),
+            ),
           ],
         ),
-        body: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-
-                // --- REUSABLE SEARCH BAR WIDGET ---
-                SearchBarView(
-                  controller: _searchController,
-                  onChanged: _onSearchChanged,
-                  searchQuery: _searchQuery,
-                  hintText: "Search vessel names...",
-                  focusedColor: primaryColor,
-                  textSecondary: textSecondary,
-                  outlineColor: outlineColor,
-                ),
-
-                Expanded(
-                  child: _isLoading
-                      ? Center(child: CircularProgressIndicator(color: primaryColor))
-                      : RefreshIndicator(
-                    color: primaryColor,
-                    onRefresh: () => _fetchVessels(isRefresh: true),
-                    child: _vessels.isEmpty
-                        ? _buildEmptyState()
-                        : ListView.builder(
-                      controller: _scrollController,
-                      physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      itemCount: _vessels.length + (_isLoadingMore ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index == _vessels.length) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 24),
-                            child: Center(child: CircularProgressIndicator(color: accentColor)),
-                          );
-                        }
-                        return _buildVesselCard(_vessels[index]);
-                      },
-                    ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_circle_outline_rounded, size: 26),
+            tooltip: "Register Vessel",
+            onPressed: () async {
+              final dynamic result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AddEditVessel(
+                    shippingLineId: widget.shippingLine['shipping_line_id'],
                   ),
                 ),
-              ],
-            ),
+              );
+
+              if (result != null && result is Map<String, dynamic>) {
+                setState(() {
+                  _vessels.insert(0, result);
+                  _offset++;
+                });
+              }
+            },
           ),
-        )
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // --- REUSABLE SEARCH BAR WIDGET ---
+              SearchBarView(
+                controller: _searchController,
+                onChanged: _onSearchChanged,
+                searchQuery: _searchQuery,
+                hintText: "Search vessel names...",
+                focusedColor: primaryColor,
+                textSecondary: textSecondary,
+                outlineColor: outlineColor,
+              ),
+
+              Expanded(
+                child: _isLoading
+                    ? Center(
+                        child: CircularProgressIndicator(color: primaryColor),
+                      )
+                    : RefreshIndicator(
+                        color: primaryColor,
+                        onRefresh: () => _fetchVessels(isRefresh: true),
+                        child: _vessels.isEmpty
+                            ? _buildEmptyState()
+                            : ListView.builder(
+                                controller: _scrollController,
+                                physics: const AlwaysScrollableScrollPhysics(
+                                  parent: BouncingScrollPhysics(),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16.0,
+                                  vertical: 8.0,
+                                ),
+                                itemCount:
+                                    _vessels.length + (_isLoadingMore ? 1 : 0),
+                                itemBuilder: (context, index) {
+                                  if (index == _vessels.length) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 24,
+                                      ),
+                                      child: Center(
+                                        child: CircularProgressIndicator(
+                                          color: accentColor,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  return _buildVesselCard(_vessels[index]);
+                                },
+                              ),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -399,20 +474,28 @@ class _VesselsManagementState extends State<VesselsManagement> {
     String displayStatus = "Unknown";
     int departureEpoch = 0;
     int arrivalEpoch = 0;
+    String dockedState = 'docked';
 
     final dynamic statusData = vessel['vessel_status'];
 
     if (statusData is Map) {
       displayStatus = (statusData['status'] ?? "Unknown").toString();
-      departureEpoch = int.tryParse(statusData['departed']?.toString() ?? "0") ?? 0;
-      arrivalEpoch = int.tryParse(statusData['arrival']?.toString() ?? "0") ?? 0;
+      departureEpoch =
+          int.tryParse(statusData['departed']?.toString() ?? "0") ?? 0;
+      arrivalEpoch =
+          int.tryParse(statusData['arrival']?.toString() ?? "0") ?? 0;
+      dockedState = statusData['docked_state']?.toString() ?? 'docked';
     } else {
       displayStatus = statusData?.toString() ?? "Unknown";
     }
 
     final String statusLower = displayStatus.toLowerCase();
+    final displayLabel = statusLower == 'docked' && dockedState != 'docked'
+        ? "Docked | ${dockedState == 'tba' ? 'TBA' : 'Preparing'}"
+        : displayStatus.replaceAll('_', ' ');
 
-    bool showTimeline = (departureEpoch > 0 || arrivalEpoch > 0) &&
+    bool showTimeline =
+        (departureEpoch > 0 || arrivalEpoch > 0) &&
         statusLower != "maintenance" &&
         statusLower != "onboarding" &&
         statusLower != "docked";
@@ -428,7 +511,7 @@ class _VesselsManagementState extends State<VesselsManagement> {
             color: Colors.black.withValues(alpha: 0.02),
             blurRadius: 10,
             offset: const Offset(0, 4),
-          )
+          ),
         ],
       ),
       child: Material(
@@ -448,7 +531,10 @@ class _VesselsManagementState extends State<VesselsManagement> {
                         color: primaryColor.withValues(alpha: 0.05),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(Icons.directions_boat_filled_rounded, color: primaryColor),
+                      child: Icon(
+                        Icons.directions_boat_filled_rounded,
+                        color: primaryColor,
+                      ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -457,12 +543,19 @@ class _VesselsManagementState extends State<VesselsManagement> {
                         children: [
                           Text(
                             vessel['vessel_name'] ?? "Unknown Ship",
-                            style: TextStyle(fontWeight: FontWeight.bold, color: textPrimary, fontSize: 16),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: textPrimary,
+                              fontSize: 16,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             vessel['vessel_type'] ?? "Ro-Ro Passenger",
-                            style: TextStyle(color: textSecondary, fontSize: 13),
+                            style: TextStyle(
+                              color: textSecondary,
+                              fontSize: 13,
+                            ),
                           ),
                         ],
                       ),
@@ -472,9 +565,9 @@ class _VesselsManagementState extends State<VesselsManagement> {
                       children: [
                         Icon(Icons.more_vert_rounded, color: outlineColor),
                         const SizedBox(height: 8),
-                        _buildStatusBadge(displayStatus),
+                        _buildStatusBadge(displayLabel),
                       ],
-                    )
+                    ),
                   ],
                 ),
 
@@ -485,9 +578,23 @@ class _VesselsManagementState extends State<VesselsManagement> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildTimeInfo("DEPARTURE", departureEpoch > 0 ? _formatTime(departureEpoch) : "--:--", Icons.logout_rounded),
-                      Icon(Icons.arrow_forward_rounded, size: 14, color: outlineColor),
-                      _buildTimeInfo("ARRIVAL", arrivalEpoch > 0 ? _formatTime(arrivalEpoch) : "--:--", Icons.login_rounded),
+                      _buildTimeInfo(
+                        "DEPARTURE",
+                        departureEpoch > 0
+                            ? _formatTime(departureEpoch)
+                            : "--:--",
+                        Icons.logout_rounded,
+                      ),
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        size: 14,
+                        color: outlineColor,
+                      ),
+                      _buildTimeInfo(
+                        "ARRIVAL",
+                        arrivalEpoch > 0 ? _formatTime(arrivalEpoch) : "--:--",
+                        Icons.login_rounded,
+                      ),
                     ],
                   ),
                 ],
@@ -510,7 +617,11 @@ class _VesselsManagementState extends State<VesselsManagement> {
       ),
       child: Text(
         status.toUpperCase(),
-        style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 10),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w900,
+          fontSize: 10,
+        ),
       ),
     );
   }
@@ -523,8 +634,22 @@ class _VesselsManagementState extends State<VesselsManagement> {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: textSecondary.withValues(alpha: 0.6))),
-            Text(time.isEmpty ? "--:--" : time, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textPrimary)),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                color: textSecondary.withValues(alpha: 0.6),
+              ),
+            ),
+            Text(
+              time.isEmpty ? "--:--" : time,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: textPrimary,
+              ),
+            ),
           ],
         ),
       ],
@@ -533,15 +658,24 @@ class _VesselsManagementState extends State<VesselsManagement> {
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'docked': return Colors.teal;
-      case 'active': return Colors.green;
-      case 'en route': return accentColor;
-      case 'delayed': return Colors.orange;
-      case 'maintenance': return Colors.red;
-      case 'departed': return accentColor;
-      case 'arrived': return const Color(0xFF10B981);
-      case 'onboarding': return Colors.orange;
-      default: return textSecondary;
+      case 'docked':
+        return Colors.teal;
+      case 'active':
+        return Colors.green;
+      case 'en route':
+        return accentColor;
+      case 'delayed':
+        return Colors.orange;
+      case 'maintenance':
+        return Colors.red;
+      case 'departed':
+        return accentColor;
+      case 'arrived':
+        return const Color(0xFF10B981);
+      case 'onboarding':
+        return Colors.orange;
+      default:
+        return textSecondary;
     }
   }
 
@@ -553,9 +687,23 @@ class _VesselsManagementState extends State<VesselsManagement> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(_searchQuery.isNotEmpty ? Icons.search_off_rounded : Icons.directions_boat_outlined, size: 60, color: outlineColor),
+              Icon(
+                _searchQuery.isNotEmpty
+                    ? Icons.search_off_rounded
+                    : Icons.directions_boat_outlined,
+                size: 60,
+                color: outlineColor,
+              ),
               const SizedBox(height: 16),
-              Text(_searchQuery.isNotEmpty ? "No matches found" : "No vessels registered", style: TextStyle(color: textSecondary, fontWeight: FontWeight.bold)),
+              Text(
+                _searchQuery.isNotEmpty
+                    ? "No matches found"
+                    : "No vessels registered",
+                style: TextStyle(
+                  color: textSecondary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ],
           ),
         ),

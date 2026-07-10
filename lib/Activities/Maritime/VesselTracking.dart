@@ -23,6 +23,7 @@ class _VesselTrackingState extends State<VesselTracking> {
   Timer? _countdownTimer;
   int _endTimeEpoch = 0;
   String _timeRemaining = "Calculating...";
+  String _timerPurpose = "Next update";
 
   // --- Local State Setter for the StatefulBuilder ---
   StateSetter? _timerStateSetter;
@@ -42,16 +43,23 @@ class _VesselTrackingState extends State<VesselTracking> {
   void _initializeTimer() {
     final dynamic statusData = widget.vessel['vessel_status'];
     if (statusData is Map) {
-      String status = (statusData['status'] ?? "").toString().trim().toLowerCase();
+      String status = (statusData['status'] ?? "")
+          .toString()
+          .trim()
+          .toLowerCase();
 
-      if (status == 'onboarding') {
-        int startEpoch = int.tryParse(statusData['onboarding_time']?.toString() ?? "0") ?? 0;
-        int durationMin = int.tryParse(statusData['onboarding_duration_minutes']?.toString() ?? "0") ?? 0;
-
-        if (startEpoch > 0 && durationMin > 0) {
-          _endTimeEpoch = startEpoch + (durationMin * 60 * 1000);
-          _startCountdownTimer();
-        }
+      if (['docked', 'onboarding', 'departed'].contains(status)) {
+        _endTimeEpoch =
+            int.tryParse(
+              statusData['estimated_transition_latest']?.toString() ?? "0",
+            ) ??
+            0;
+        _timerPurpose = status == 'docked'
+            ? 'Preparing'
+            : status == 'onboarding'
+            ? 'Est. Departure'
+            : 'Est. Arrival';
+        if (_endTimeEpoch > 0) _startCountdownTimer();
       }
     }
   }
@@ -68,7 +76,7 @@ class _VesselTrackingState extends State<VesselTracking> {
     int diff = _endTimeEpoch - now;
 
     if (diff <= 0) {
-      _timeRemaining = "Waiting for departure";
+      _timeRemaining = "Awaiting confirmation";
       _countdownTimer?.cancel();
       // Update ONLY the local StatefulBuilder
       _timerStateSetter?.call(() {});
@@ -98,14 +106,16 @@ class _VesselTrackingState extends State<VesselTracking> {
   String _getPortName(String? portId) {
     if (portId == null || portId.isEmpty) return "--:--";
     final port = widget.availablePorts.firstWhere(
-          (p) => p['port_id'].toString() == portId.toString(),
+      (p) => p['port_id'].toString() == portId.toString(),
       orElse: () => {'port_name': 'Unknown Port'},
     );
     return port['port_name'].toString();
   }
 
   Future<void> _launchDirections(double lat, double lng) async {
-    final Uri uri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
+    final Uri uri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng',
+    );
     try {
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -122,7 +132,8 @@ class _VesselTrackingState extends State<VesselTracking> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white, // Pure white inside the pastel header to make it pop
+        color:
+            Colors.white, // Pure white inside the pastel header to make it pop
         border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(6),
       ),
@@ -150,7 +161,7 @@ class _VesselTrackingState extends State<VesselTracking> {
 
     // --- Data Extraction ---
     String vesselName = widget.vessel['vessel_name'] ?? 'Unknown Vessel';
-    String displayStatus = "Docked";
+    String displayStatus = "No Schedule";
     String? proofUrl;
 
     String originId = "";
@@ -161,6 +172,10 @@ class _VesselTrackingState extends State<VesselTracking> {
     int arrival = 0;
     int onboardingTime = 0;
     int travelDuration = 170;
+    String passengerLevel = "medium";
+    String noScheduleReason = "";
+    String dockedState = "docked";
+    int lastConfirmedAt = 0;
 
     final dynamic statusData = widget.vessel['vessel_status'];
     if (statusData is Map) {
@@ -172,12 +187,22 @@ class _VesselTrackingState extends State<VesselTracking> {
       destName = _getPortName(statusData['destination']?.toString());
       departed = int.tryParse(statusData['departed']?.toString() ?? "0") ?? 0;
       arrival = int.tryParse(statusData['arrival']?.toString() ?? "0") ?? 0;
-      onboardingTime = int.tryParse(statusData['onboarding_time']?.toString() ?? "0") ?? 0;
-      travelDuration = int.tryParse(statusData['travel_duration_minutes']?.toString() ?? "170") ?? 170;
+      onboardingTime =
+          int.tryParse(statusData['onboarding_time']?.toString() ?? "0") ?? 0;
+      travelDuration =
+          int.tryParse(
+            statusData['travel_duration_minutes']?.toString() ?? "170",
+          ) ??
+          170;
       proofUrl = statusData['image_proof']?.toString();
+      passengerLevel = statusData['passenger_level']?.toString() ?? "medium";
+      noScheduleReason = statusData['no_schedule_reason']?.toString() ?? "";
+      dockedState = statusData['docked_state']?.toString() ?? "docked";
+      lastConfirmedAt =
+          int.tryParse(statusData['last_confirmed_at']?.toString() ?? "0") ?? 0;
       if (proofUrl != null && proofUrl.isEmpty) proofUrl = null;
     } else {
-      displayStatus = statusData?.toString().trim() ?? "Docked";
+      displayStatus = statusData?.toString().trim() ?? "No Schedule";
     }
 
     if (originId.isEmpty) {
@@ -186,12 +211,27 @@ class _VesselTrackingState extends State<VesselTracking> {
     }
 
     final String statusLower = displayStatus.toLowerCase();
-    String departedTime = departed > 0 ? Utility().formatEpochToTime(departed) : "--:--";
-    String departedTimeAgo = departed > 0 ? Utility().getEpochTimeAgo(departed) : "";
-    String arrivalTime = arrival > 0 ? Utility().formatEpochToTime(arrival) : "--:--";
-    String arrivalTimeAgo = arrival > 0 ? Utility().getEpochTimeAgo(arrival) : "";
-    String onboardingFormatted = onboardingTime > 0 ? Utility().formatEpochToTime(onboardingTime) : "--:--";
-    String onboardingTimeAgo = onboardingTime > 0 ? Utility().getEpochTimeAgo(onboardingTime) : "";
+    final displayLabel = statusLower == 'docked' && dockedState != 'docked'
+        ? "Docked | ${dockedState == 'tba' ? 'TBA' : 'Preparing'}"
+        : displayStatus.replaceAll('_', ' ');
+    String departedTime = departed > 0
+        ? Utility().formatEpochToTime(departed)
+        : "--:--";
+    String departedTimeAgo = departed > 0
+        ? Utility().getEpochTimeAgo(departed)
+        : "";
+    String arrivalTime = arrival > 0
+        ? Utility().formatEpochToTime(arrival)
+        : "--:--";
+    String arrivalTimeAgo = arrival > 0
+        ? Utility().getEpochTimeAgo(arrival)
+        : "";
+    String onboardingFormatted = onboardingTime > 0
+        ? Utility().formatEpochToTime(onboardingTime)
+        : "--:--";
+    String onboardingTimeAgo = onboardingTime > 0
+        ? Utility().getEpochTimeAgo(onboardingTime)
+        : "";
 
     String etaTime = "--:--";
     if (departed > 0) {
@@ -203,12 +243,20 @@ class _VesselTrackingState extends State<VesselTracking> {
     double? originLng;
     if (originId.isNotEmpty) {
       final portData = widget.availablePorts.firstWhere(
-            (p) => p['port_id'].toString() == originId,
+        (p) => p['port_id'].toString() == originId,
         orElse: () => {},
       );
 
-      originLat = double.tryParse(portData['port_latitude']?.toString() ?? portData['latitude']?.toString() ?? '');
-      originLng = double.tryParse(portData['port_longitude']?.toString() ?? portData['longitude']?.toString() ?? '');
+      originLat = double.tryParse(
+        portData['port_latitude']?.toString() ??
+            portData['latitude']?.toString() ??
+            '',
+      );
+      originLng = double.tryParse(
+        portData['port_longitude']?.toString() ??
+            portData['longitude']?.toString() ??
+            '',
+      );
     }
 
     // --- FETCH DYNAMIC INDICATOR COLORS ---
@@ -219,7 +267,10 @@ class _VesselTrackingState extends State<VesselTracking> {
       appBar: AppBar(
         backgroundColor: primaryDark,
         foregroundColor: Colors.white,
-        title: const Text("Vessel Tracking", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18)),
+        title: const Text(
+          "Vessel Tracking",
+          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
+        ),
         elevation: 0,
       ),
       body: SafeArea(
@@ -232,13 +283,15 @@ class _VesselTrackingState extends State<VesselTracking> {
                   child: ListView(
                     padding: const EdgeInsets.all(20.0),
                     children: [
-
                       // --- Pastel Colored Flat Header ---
                       Container(
                         padding: const EdgeInsets.all(16.0),
                         decoration: BoxDecoration(
-                          color: statusColors.background, // Applies the beautiful pastel tint
-                          border: Border.all(color: statusColors.border), // Matching border
+                          color: statusColors
+                              .background, // Applies the beautiful pastel tint
+                          border: Border.all(
+                            color: statusColors.border,
+                          ), // Matching border
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(
@@ -246,10 +299,15 @@ class _VesselTrackingState extends State<VesselTracking> {
                             Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                color: statusColors.text.withValues(alpha: 0.1), // Tinted circle
+                                color: statusColors.text.withValues(
+                                  alpha: 0.1,
+                                ), // Tinted circle
                                 shape: BoxShape.circle,
                               ),
-                              child: Icon(Icons.directions_boat, color: statusColors.text), // Matching Icon
+                              child: Icon(
+                                Icons.directions_boat,
+                                color: statusColors.text,
+                              ), // Matching Icon
                             ),
                             const SizedBox(width: 16),
                             Expanded(
@@ -258,17 +316,27 @@ class _VesselTrackingState extends State<VesselTracking> {
                                 children: [
                                   Text(
                                     vesselName,
-                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textPrimary),
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: textPrimary,
+                                    ),
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
                                     "Live Vessel Information",
-                                    style: TextStyle(fontSize: 13, color: textSecondary),
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: textSecondary,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            _buildDynamicStatusBadge(displayStatus, statusColors),
+                            _buildDynamicStatusBadge(
+                              displayLabel,
+                              statusColors,
+                            ),
                           ],
                         ),
                       ),
@@ -278,7 +346,15 @@ class _VesselTrackingState extends State<VesselTracking> {
                       // --- Route Details Flat Container ---
                       const Padding(
                         padding: EdgeInsets.only(bottom: 8),
-                        child: Text("ROUTE DETAILS", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textSecondary, letterSpacing: 0.5)),
+                        child: Text(
+                          "ROUTE DETAILS",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: textSecondary,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
                       ),
                       Container(
                         decoration: BoxDecoration(
@@ -287,9 +363,44 @@ class _VesselTrackingState extends State<VesselTracking> {
                         ),
                         child: Column(
                           children: [
-                            _buildFlatRow(Icons.my_location, "Current / Origin:", originName, textPrimary),
+                            _buildFlatRow(
+                              Icons.my_location,
+                              "Current / Origin:",
+                              originName,
+                              textPrimary,
+                            ),
                             const Divider(height: 1, color: borderColor),
-                            _buildFlatRow(Icons.location_on, "Destination:", destName, textPrimary),
+                            _buildFlatRow(
+                              Icons.location_on,
+                              "Destination:",
+                              destName,
+                              textPrimary,
+                            ),
+                            const Divider(height: 1, color: borderColor),
+                            _buildFlatRow(
+                              Icons.groups_rounded,
+                              "Passenger Level:",
+                              passengerLevel.replaceAll('_', ' ').toUpperCase(),
+                              textPrimary,
+                            ),
+                            if (noScheduleReason.isNotEmpty) ...[
+                              const Divider(height: 1, color: borderColor),
+                              _buildFlatRow(
+                                Icons.info_outline_rounded,
+                                "Reason:",
+                                noScheduleReason,
+                                IndicatorColors.maintenance.text,
+                              ),
+                            ],
+                            if (lastConfirmedAt > 0) ...[
+                              const Divider(height: 1, color: borderColor),
+                              _buildFlatRow(
+                                Icons.verified_outlined,
+                                "Last Confirmed:",
+                                Utility().getEpochTimeAgo(lastConfirmedAt),
+                                textSecondary,
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -299,7 +410,15 @@ class _VesselTrackingState extends State<VesselTracking> {
                       // --- Timestamps Flat Container ---
                       const Padding(
                         padding: EdgeInsets.only(bottom: 8),
-                        child: Text("TIMESTAMPS", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textSecondary, letterSpacing: 0.5)),
+                        child: Text(
+                          "TIMESTAMPS",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: textSecondary,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
                       ),
                       Container(
                         decoration: BoxDecoration(
@@ -308,38 +427,65 @@ class _VesselTrackingState extends State<VesselTracking> {
                         ),
                         child: Column(
                           children: [
-                            if (statusLower == 'onboarding' || onboardingTime > 0) ...[
+                            if (_endTimeEpoch > 0) ...[
+                              StatefulBuilder(
+                                builder:
+                                    (
+                                      BuildContext context,
+                                      StateSetter setLocalState,
+                                    ) {
+                                      _timerStateSetter = setLocalState;
+                                      return _buildFlatRow(
+                                        Icons.timer_outlined,
+                                        "$_timerPurpose:",
+                                        _timeRemaining,
+                                        statusColors.text,
+                                      );
+                                    },
+                              ),
+                              const Divider(height: 1, color: borderColor),
+                            ],
+                            if (statusLower == 'onboarding' ||
+                                onboardingTime > 0) ...[
                               // Used IndicatorColors for onboarding to ensure visual sync
-                              _buildFlatRow(Icons.group_add, "Onboarding:", onboardingFormatted, IndicatorColors.onboarding.text, subValue: onboardingTimeAgo),
+                              _buildFlatRow(
+                                Icons.group_add,
+                                "Onboarding:",
+                                onboardingFormatted,
+                                IndicatorColors.onboarding.text,
+                                subValue: onboardingTimeAgo,
+                              ),
                               const Divider(height: 1, color: borderColor),
 
                               // --- STATEFUL BUILDER TIMER OPTIMIZATION ---
-                              if (statusLower == 'onboarding' && _endTimeEpoch > 0) ...[
-                                StatefulBuilder(
-                                    builder: (BuildContext context, StateSetter setLocalState) {
-                                      _timerStateSetter = setLocalState;
-
-                                      return _buildFlatRow(
-                                          Icons.timer_outlined,
-                                          "Est. Departure:",
-                                          _timeRemaining,
-                                          IndicatorColors.onboarding.text
-                                      );
-                                    }
-                                ),
-                                const Divider(height: 1, color: borderColor),
-                              ]
                             ],
 
-                            // Kept hardcoded timeline colors since timeline logic assumes blue = departed, green = arrived
-                            _buildFlatRow(Icons.logout, "Departed:", departedTime, Colors.blue.shade700, subValue: departedTimeAgo),
+                            _buildFlatRow(
+                              Icons.logout,
+                              "Departed:",
+                              departedTime,
+                              IndicatorColors.departed.text,
+                              subValue: departedTimeAgo,
+                            ),
 
                             if (statusLower == 'departed') ...[
                               const Divider(height: 1, color: borderColor),
-                              _buildFlatRow(Icons.event_available, "Estimated Arrival:", etaTime, Colors.blue.shade700),
-                            ] else if (statusLower == 'arrived' || arrival > 0) ...[
+                              _buildFlatRow(
+                                Icons.event_available,
+                                "Estimated Arrival:",
+                                etaTime,
+                                IndicatorColors.departed.text,
+                              ),
+                            ] else if (statusLower == 'arrived' ||
+                                arrival > 0) ...[
                               const Divider(height: 1, color: borderColor),
-                              _buildFlatRow(Icons.login, "Arrived:", arrivalTime, Colors.green.shade700, subValue: arrivalTimeAgo),
+                              _buildFlatRow(
+                                Icons.login,
+                                "Arrived:",
+                                arrivalTime,
+                                IndicatorColors.arrival.text,
+                                subValue: arrivalTimeAgo,
+                              ),
                             ],
                           ],
                         ),
@@ -350,7 +496,15 @@ class _VesselTrackingState extends State<VesselTracking> {
                       // --- Image Proof Flat Container ---
                       const Padding(
                         padding: EdgeInsets.only(bottom: 8),
-                        child: Text("LATEST LIVE PROOF", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textSecondary, letterSpacing: 0.5)),
+                        child: Text(
+                          "LATEST LIVE PROOF",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: textSecondary,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
                       ),
                       Container(
                         height: 200,
@@ -363,11 +517,14 @@ class _VesselTrackingState extends State<VesselTracking> {
                         clipBehavior: Clip.antiAlias,
                         child: proofUrl != null
                             ? Image.network(
-                          proofUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => _buildImageError(),
-                        )
-                            : _buildImageError(message: "No proof image uploaded"),
+                                proofUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    _buildImageError(),
+                              )
+                            : _buildImageError(
+                                message: "No proof image uploaded",
+                              ),
                       ),
 
                       const SizedBox(height: 20),
@@ -376,7 +533,9 @@ class _VesselTrackingState extends State<VesselTracking> {
                 ),
 
                 // --- STICKY BOTTOM BUTTON (Directions) ---
-                if (statusLower == 'onboarding' && originLat != null && originLng != null)
+                if (statusLower == 'onboarding' &&
+                    originLat != null &&
+                    originLng != null)
                   Container(
                     padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
                     decoration: const BoxDecoration(
@@ -387,7 +546,8 @@ class _VesselTrackingState extends State<VesselTracking> {
                     child: SizedBox(
                       height: 52,
                       child: ElevatedButton.icon(
-                        onPressed: () => _launchDirections(originLat!, originLng!),
+                        onPressed: () =>
+                            _launchDirections(originLat!, originLng!),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: primaryDark,
                           foregroundColor: Colors.white,
@@ -396,15 +556,20 @@ class _VesselTrackingState extends State<VesselTracking> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                         ),
-                        icon: const Icon(Icons.directions_car_rounded, size: 20),
+                        icon: const Icon(
+                          Icons.directions_car_rounded,
+                          size: 20,
+                        ),
                         label: const Text(
-                            "Get Directions to Port",
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)
+                          "Get Directions to Port",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ),
                   ),
-
               ],
             ),
           ),
@@ -415,21 +580,43 @@ class _VesselTrackingState extends State<VesselTracking> {
 
   // --- Flat UI Helpers ---
 
-  Widget _buildFlatRow(IconData icon, String label, String value, Color valueColor, {String? subValue}) {
+  Widget _buildFlatRow(
+    IconData icon,
+    String label,
+    String value,
+    Color valueColor, {
+    String? subValue,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
           Icon(icon, color: const Color(0xFF9CA3AF), size: 20),
           const SizedBox(width: 12),
-          Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF4B5563))),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 14, color: Color(0xFF4B5563)),
+          ),
           const Spacer(),
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: valueColor)),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: valueColor,
+                ),
+              ),
               if (subValue != null && subValue.isNotEmpty)
-                Text(subValue, style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+                Text(
+                  subValue,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF9CA3AF),
+                  ),
+                ),
             ],
           ),
         ],
@@ -441,9 +628,16 @@ class _VesselTrackingState extends State<VesselTracking> {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Icon(Icons.image_not_supported, size: 32, color: Color(0xFF9CA3AF)),
+        const Icon(
+          Icons.image_not_supported,
+          size: 32,
+          color: Color(0xFF9CA3AF),
+        ),
         const SizedBox(height: 8),
-        Text(message, style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
+        Text(
+          message,
+          style: const TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+        ),
       ],
     );
   }

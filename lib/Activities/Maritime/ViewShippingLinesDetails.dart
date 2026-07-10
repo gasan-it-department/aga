@@ -7,12 +7,14 @@ import 'package:gasan_port_tracker/Utility/Utility.dart';
 import '../../Dialogs/Bottomsheets/ViewFares.dart';
 import '../../Dialogs/Bottomsheets/ViewSchedules.dart';
 import 'ViewVesselsDetails.dart';
+import '../../Maritime/MaritimeDataMapper.dart';
 
 class ViewShippingLinesDetails extends StatefulWidget {
   const ViewShippingLinesDetails({super.key});
 
   @override
-  State<ViewShippingLinesDetails> createState() => _ViewShippingLinesDetailsState();
+  State<ViewShippingLinesDetails> createState() =>
+      _ViewShippingLinesDetailsState();
 }
 
 class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
@@ -37,15 +39,29 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
   Future<void> _fetchShippingLines() async {
     setState(() => _isLoading = true);
     try {
-      // Fetch shipping lines and just grab the vessel IDs to count the fleet size
-      final linesResponse = await supabase
-          .from('shipping_lines')
-          .select('*, vessels(vessel_id)')
-          .order('shipping_line_name');
+      final responses = await Future.wait([
+        supabase.from('ports').select('port_id, port_name'),
+        supabase
+            .from('shipping_lines')
+            .select(
+              '*, vessels(vessel_id), shipping_line_route_profiles(*, shipping_line_fares(*))',
+            )
+            .order('shipping_line_name'),
+      ]);
+      final ports = List<Map<String, dynamic>>.from(responses[0] as List);
+      final portNames = {
+        for (final port in ports)
+          port['port_id'].toString(): port['port_name'].toString(),
+      };
 
       if (mounted) {
         setState(() {
-          _shippingLines = List<Map<String, dynamic>>.from(linesResponse);
+          _shippingLines = List<Map<String, dynamic>>.from(responses[1] as List)
+              .map(
+                (line) =>
+                    MaritimeDataMapper.normalizeShippingLine(line, portNames),
+              )
+              .toList();
           _isLoading = false;
         });
       }
@@ -70,7 +86,8 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
   }
 
   void _showShippingLineOptions(Map<String, dynamic> line) {
-    final String lineName = line['shipping_line_name']?.toString() ?? 'Shipping Line';
+    final String lineName =
+        line['shipping_line_name']?.toString() ?? 'Shipping Line';
     final int fleetSize = (line['vessels'] as List?)?.length ?? 0;
 
     showModalBottomSheet(
@@ -116,7 +133,11 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                         color: primaryDark.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(16),
                       ),
-                      child: Icon(Icons.directions_boat_filled_rounded, color: primaryDark, size: 24),
+                      child: Icon(
+                        Icons.directions_boat_filled_rounded,
+                        color: primaryDark,
+                        size: 24,
+                      ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -125,14 +146,22 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                         children: [
                           Text(
                             lineName,
-                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: primaryDark),
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w900,
+                              color: primaryDark,
+                            ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 3),
                           Text(
                             "$fleetSize Vessel${fleetSize <= 1 ? '' : 's'} available",
-                            style: TextStyle(fontSize: 12, color: textSecondary, fontWeight: FontWeight.w700),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: textSecondary,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ],
                       ),
@@ -180,7 +209,8 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => ViewVesselsDetails(shippingLine: line),
+                        builder: (context) =>
+                            ViewVesselsDetails(shippingLine: line),
                       ),
                     );
                   },
@@ -224,9 +254,23 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: TextStyle(color: textPrimary, fontSize: 14, fontWeight: FontWeight.w900)),
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: textPrimary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                     const SizedBox(height: 3),
-                    Text(subtitle, style: TextStyle(color: textSecondary, fontSize: 12, fontWeight: FontWeight.w600)),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -248,7 +292,12 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
         foregroundColor: primaryDark,
         elevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: primaryDark, letterSpacing: -0.5),
+        titleTextStyle: TextStyle(
+          fontWeight: FontWeight.w900,
+          fontSize: 18,
+          color: primaryDark,
+          letterSpacing: -0.5,
+        ),
       ),
       body: Center(
         child: ConstrainedBox(
@@ -258,17 +307,19 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
               : _shippingLines.isEmpty
               ? _buildEmptyState()
               : RefreshIndicator(
-            onRefresh: _fetchShippingLines,
-            color: accentBlue,
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-              itemCount: _shippingLines.length,
-              itemBuilder: (context, index) {
-                return _buildShippingLineCard(_shippingLines[index]);
-              },
-            ),
-          ),
+                  onRefresh: _fetchShippingLines,
+                  color: accentBlue,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
+                    ),
+                    itemCount: _shippingLines.length,
+                    itemBuilder: (context, index) {
+                      return _buildShippingLineCard(_shippingLines[index]);
+                    },
+                  ),
+                ),
         ),
       ),
     );
@@ -288,7 +339,7 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
             color: primaryDark.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
-          )
+          ),
         ],
       ),
       child: Material(
@@ -306,7 +357,11 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                     color: primaryDark.withValues(alpha: 0.05),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.business_rounded, color: primaryDark, size: 24),
+                  child: Icon(
+                    Icons.business_rounded,
+                    color: primaryDark,
+                    size: 24,
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -315,16 +370,28 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                     children: [
                       Text(
                         line['shipping_line_name'] ?? 'Unknown Line',
-                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: primaryDark),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 17,
+                          color: primaryDark,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Row(
                         children: [
-                          Icon(Icons.directions_boat_rounded, size: 14, color: textSecondary),
+                          Icon(
+                            Icons.directions_boat_rounded,
+                            size: 14,
+                            color: textSecondary,
+                          ),
                           const SizedBox(width: 6),
                           Text(
                             "$fleetSize Vessel${fleetSize <= 1 ? '' : 's'}",
-                            style: TextStyle(fontSize: 13, color: textSecondary, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: textSecondary,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),
@@ -347,13 +414,30 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
         children: [
           Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: primaryDark.withValues(alpha: 0.05), shape: BoxShape.circle),
-            child: Icon(Icons.business_rounded, size: 48, color: textSecondary.withValues(alpha: 0.5)),
+            decoration: BoxDecoration(
+              color: primaryDark.withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.business_rounded,
+              size: 48,
+              color: textSecondary.withValues(alpha: 0.5),
+            ),
           ),
           const SizedBox(height: 20),
-          Text("No shipping lines found", style: TextStyle(color: primaryDark, fontWeight: FontWeight.w900, fontSize: 18)),
+          Text(
+            "No shipping lines found",
+            style: TextStyle(
+              color: primaryDark,
+              fontWeight: FontWeight.w900,
+              fontSize: 18,
+            ),
+          ),
           const SizedBox(height: 8),
-          Text("Directory is currently empty.", style: TextStyle(color: textSecondary, fontWeight: FontWeight.w500)),
+          Text(
+            "Directory is currently empty.",
+            style: TextStyle(color: textSecondary, fontWeight: FontWeight.w500),
+          ),
         ],
       ),
     );
