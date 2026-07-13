@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 import 'package:url_launcher/url_launcher.dart';
-// Added the new IndicatorColors import
 import 'package:gasan_port_tracker/Colors/IndicatorColors.dart';
 
 class VesselTracking extends StatefulWidget {
@@ -25,7 +24,6 @@ class _VesselTrackingState extends State<VesselTracking> {
   String _timeRemaining = "Calculating...";
   String _timerPurpose = "Next update";
 
-  // --- Local State Setter for the StatefulBuilder ---
   StateSetter? _timerStateSetter;
 
   @override
@@ -48,17 +46,13 @@ class _VesselTrackingState extends State<VesselTracking> {
           .trim()
           .toLowerCase();
 
-      if (['docked', 'onboarding', 'departed'].contains(status)) {
+      if (['docked', 'onboarding'].contains(status)) {
         _endTimeEpoch =
             int.tryParse(
               statusData['estimated_transition_latest']?.toString() ?? "0",
             ) ??
             0;
-        _timerPurpose = status == 'docked'
-            ? 'Preparing'
-            : status == 'onboarding'
-            ? 'Est. Departure'
-            : 'Est. Arrival';
+        _timerPurpose = status == 'docked' ? 'Preparing' : 'Est. Departure';
         if (_endTimeEpoch > 0) _startCountdownTimer();
       }
     }
@@ -78,18 +72,13 @@ class _VesselTrackingState extends State<VesselTracking> {
     if (diff <= 0) {
       _timeRemaining = "Awaiting confirmation";
       _countdownTimer?.cancel();
-      // Update ONLY the local StatefulBuilder
       _timerStateSetter?.call(() {});
     } else {
-      // Calculate total remaining seconds
       int totalSeconds = (diff / 1000).floor();
-
-      // Break down into Hours, Minutes, and Seconds
       int h = totalSeconds ~/ 3600;
       int m = (totalSeconds % 3600) ~/ 60;
       int s = totalSeconds % 60;
 
-      // Conditionally format the string
       if (h > 0) {
         _timeRemaining = "${h}h ${m}m ${s}s";
       } else if (m > 0) {
@@ -98,7 +87,6 @@ class _VesselTrackingState extends State<VesselTracking> {
         _timeRemaining = "${s}s";
       }
 
-      // Update ONLY the local StatefulBuilder
       _timerStateSetter?.call(() {});
     }
   }
@@ -127,13 +115,11 @@ class _VesselTrackingState extends State<VesselTracking> {
     }
   }
 
-  // --- Dynamic Badge Helper using IndicatorColors ---
   Widget _buildDynamicStatusBadge(String status, StatusColors colors) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color:
-            Colors.white, // Pure white inside the pastel header to make it pop
+        color: Colors.white,
         border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(6),
       ),
@@ -151,15 +137,13 @@ class _VesselTrackingState extends State<VesselTracking> {
 
   @override
   Widget build(BuildContext context) {
-    // --- Flat Color Palette ---
-    const Color bgColor = Colors.white;
+    const Color bgColor = Color(0xFFF8FAFC);
     const Color primaryDark = Color(0xFF0A2E5C);
     const Color borderColor = Color(0xFFE5E7EB);
     const Color sectionBgColor = Color(0xFFF9FAFB);
     const Color textPrimary = Color(0xFF111827);
     const Color textSecondary = Color(0xFF6B7280);
 
-    // --- Data Extraction ---
     String vesselName = widget.vessel['vessel_name'] ?? 'Unknown Vessel';
     String displayStatus = "No Schedule";
     String? proofUrl;
@@ -171,7 +155,6 @@ class _VesselTrackingState extends State<VesselTracking> {
     int departed = 0;
     int arrival = 0;
     int onboardingTime = 0;
-    int travelDuration = 170;
     String passengerLevel = "medium";
     String noScheduleReason = "";
     String dockedState = "docked";
@@ -179,7 +162,6 @@ class _VesselTrackingState extends State<VesselTracking> {
 
     final dynamic statusData = widget.vessel['vessel_status'];
     if (statusData is Map) {
-      // Added .trim() for reliable string matching
       displayStatus = (statusData['status'] ?? "Docked").toString().trim();
       originId = statusData['origin']?.toString() ?? "";
 
@@ -189,11 +171,6 @@ class _VesselTrackingState extends State<VesselTracking> {
       arrival = int.tryParse(statusData['arrival']?.toString() ?? "0") ?? 0;
       onboardingTime =
           int.tryParse(statusData['onboarding_time']?.toString() ?? "0") ?? 0;
-      travelDuration =
-          int.tryParse(
-            statusData['travel_duration_minutes']?.toString() ?? "170",
-          ) ??
-          170;
       proofUrl = statusData['image_proof']?.toString();
       passengerLevel = statusData['passenger_level']?.toString() ?? "medium";
       noScheduleReason = statusData['no_schedule_reason']?.toString() ?? "";
@@ -211,9 +188,10 @@ class _VesselTrackingState extends State<VesselTracking> {
     }
 
     final String statusLower = displayStatus.toLowerCase();
-    final displayLabel = statusLower == 'docked' && dockedState != 'docked'
-        ? "Docked | ${dockedState == 'tba' ? 'TBA' : 'Preparing'}"
-        : displayStatus.replaceAll('_', ' ');
+    final displayLabel = displayStatus.replaceAll('_', ' ');
+    final dockedLabel = statusLower == 'docked' && dockedState != 'docked'
+        ? (dockedState == 'tba' ? 'TBA' : 'Preparing')
+        : null;
     String departedTime = departed > 0
         ? Utility().formatEpochToTime(departed)
         : "--:--";
@@ -232,12 +210,6 @@ class _VesselTrackingState extends State<VesselTracking> {
     String onboardingTimeAgo = onboardingTime > 0
         ? Utility().getEpochTimeAgo(onboardingTime)
         : "";
-
-    String etaTime = "--:--";
-    if (departed > 0) {
-      int etaEpoch = departed + (travelDuration * 60 * 1000);
-      etaTime = Utility().formatEpochToTime(etaEpoch);
-    }
 
     double? originLat;
     double? originLng;
@@ -259,7 +231,6 @@ class _VesselTrackingState extends State<VesselTracking> {
       );
     }
 
-    // --- FETCH DYNAMIC INDICATOR COLORS ---
     final StatusColors statusColors = IndicatorColors.getColors(displayStatus);
 
     return Scaffold(
@@ -281,265 +252,151 @@ class _VesselTrackingState extends State<VesselTracking> {
               children: [
                 Expanded(
                   child: ListView(
-                    padding: const EdgeInsets.all(20.0),
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 22),
                     children: [
-                      // --- Pastel Colored Flat Header ---
-                      Container(
-                        padding: const EdgeInsets.all(16.0),
-                        decoration: BoxDecoration(
-                          color: statusColors
-                              .background, // Applies the beautiful pastel tint
-                          border: Border.all(
-                            color: statusColors.border,
-                          ), // Matching border
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: statusColors.text.withValues(
-                                  alpha: 0.1,
-                                ), // Tinted circle
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.directions_boat,
-                                color: statusColors.text,
-                              ), // Matching Icon
-                            ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    vesselName,
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: textPrimary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    "Live Vessel Information",
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            _buildDynamicStatusBadge(
-                              displayLabel,
-                              statusColors,
-                            ),
-                          ],
-                        ),
+                      _buildHeroCard(
+                        vesselName,
+                        displayLabel,
+                        dockedLabel,
+                        statusColors,
+                        textPrimary,
+                        textSecondary,
                       ),
-
-                      const SizedBox(height: 24),
-
-                      // --- Route Details Flat Container ---
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          "ROUTE DETAILS",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: textSecondary,
-                            letterSpacing: 0.5,
+                      const SizedBox(height: 16),
+                      _buildSectionCard(
+                        "Route Details",
+                        Icons.route_rounded,
+                        primaryDark,
+                        borderColor,
+                        [
+                          _buildDetailTile(
+                            Icons.my_location_rounded,
+                            "Current / Origin",
+                            originName,
+                            textPrimary,
                           ),
-                        ),
-                      ),
-                      Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: borderColor),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          children: [
-                            _buildFlatRow(
-                              Icons.my_location,
-                              "Current / Origin:",
-                              originName,
-                              textPrimary,
-                            ),
-                            const Divider(height: 1, color: borderColor),
-                            _buildFlatRow(
-                              Icons.location_on,
-                              "Destination:",
-                              destName,
-                              textPrimary,
-                            ),
-                            const Divider(height: 1, color: borderColor),
-                            _buildFlatRow(
-                              Icons.groups_rounded,
-                              "Passenger Level:",
-                              passengerLevel.replaceAll('_', ' ').toUpperCase(),
-                              textPrimary,
-                            ),
-                            if (noScheduleReason.isNotEmpty) ...[
-                              const Divider(height: 1, color: borderColor),
-                              _buildFlatRow(
-                                Icons.info_outline_rounded,
-                                "Reason:",
-                                noScheduleReason,
-                                IndicatorColors.maintenance.text,
-                              ),
-                            ],
-                            if (lastConfirmedAt > 0) ...[
-                              const Divider(height: 1, color: borderColor),
-                              _buildFlatRow(
-                                Icons.verified_outlined,
-                                "Last Confirmed:",
-                                Utility().getEpochTimeAgo(lastConfirmedAt),
-                                textSecondary,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // --- Timestamps Flat Container ---
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          "TIMESTAMPS",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: textSecondary,
-                            letterSpacing: 0.5,
+                          _buildDetailTile(
+                            Icons.location_on_rounded,
+                            "Destination",
+                            destName,
+                            textPrimary,
                           ),
-                        ),
+                          _buildDetailTile(
+                            Icons.groups_rounded,
+                            "Passenger Level",
+                            statusLower == 'docked'
+                                ? "-:-"
+                                : passengerLevel
+                                      .replaceAll('_', ' ')
+                                      .toUpperCase(),
+                            textPrimary,
+                          ),
+                          if (noScheduleReason.isNotEmpty)
+                            _buildDetailTile(
+                              Icons.info_outline_rounded,
+                              "Reason",
+                              noScheduleReason,
+                              IndicatorColors.maintenance.text,
+                            ),
+                          if (lastConfirmedAt > 0)
+                            _buildDetailTile(
+                              Icons.verified_outlined,
+                              "Last Confirmed",
+                              Utility().getEpochTimeAgo(lastConfirmedAt),
+                              textSecondary,
+                            ),
+                        ],
                       ),
-                      Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: borderColor),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          children: [
-                            if (_endTimeEpoch > 0) ...[
-                              StatefulBuilder(
-                                builder:
-                                    (
-                                      BuildContext context,
-                                      StateSetter setLocalState,
-                                    ) {
-                                      _timerStateSetter = setLocalState;
-                                      return _buildFlatRow(
-                                        Icons.timer_outlined,
-                                        "$_timerPurpose:",
-                                        _timeRemaining,
-                                        statusColors.text,
-                                      );
-                                    },
-                              ),
-                              const Divider(height: 1, color: borderColor),
-                            ],
-                            if (statusLower == 'onboarding' ||
-                                onboardingTime > 0) ...[
-                              // Used IndicatorColors for onboarding to ensure visual sync
-                              _buildFlatRow(
-                                Icons.group_add,
-                                "Onboarding:",
-                                onboardingFormatted,
-                                IndicatorColors.onboarding.text,
-                                subValue: onboardingTimeAgo,
-                              ),
-                              const Divider(height: 1, color: borderColor),
-
-                              // --- STATEFUL BUILDER TIMER OPTIMIZATION ---
-                            ],
-
-                            _buildFlatRow(
-                              Icons.logout,
-                              "Departed:",
+                      const SizedBox(height: 16),
+                      _buildSectionCard(
+                        "Timeline",
+                        Icons.schedule_rounded,
+                        primaryDark,
+                        borderColor,
+                        [
+                          if (_endTimeEpoch > 0)
+                            StatefulBuilder(
+                              builder:
+                                  (
+                                    BuildContext context,
+                                    StateSetter setLocalState,
+                                  ) {
+                                    _timerStateSetter = setLocalState;
+                                    return _buildDetailTile(
+                                      Icons.timer_outlined,
+                                      _timerPurpose,
+                                      _timeRemaining,
+                                      statusColors.text,
+                                    );
+                                  },
+                            ),
+                          if (statusLower == 'onboarding' || onboardingTime > 0)
+                            _buildDetailTile(
+                              Icons.group_add_rounded,
+                              "Onboarding",
+                              onboardingFormatted,
+                              IndicatorColors.onboarding.text,
+                              subValue: onboardingTimeAgo,
+                            ),
+                          if (statusLower == 'departed' ||
+                              statusLower == 'arrived')
+                            _buildDetailTile(
+                              Icons.logout_rounded,
+                              "Departed",
                               departedTime,
                               IndicatorColors.departed.text,
                               subValue: departedTimeAgo,
                             ),
-
-                            if (statusLower == 'departed') ...[
-                              const Divider(height: 1, color: borderColor),
-                              _buildFlatRow(
-                                Icons.event_available,
-                                "Estimated Arrival:",
-                                etaTime,
-                                IndicatorColors.departed.text,
-                              ),
-                            ] else if (statusLower == 'arrived' ||
-                                arrival > 0) ...[
-                              const Divider(height: 1, color: borderColor),
-                              _buildFlatRow(
-                                Icons.login,
-                                "Arrived:",
-                                arrivalTime,
-                                IndicatorColors.arrival.text,
-                                subValue: arrivalTimeAgo,
-                              ),
-                            ],
-                          ],
-                        ),
+                          if (statusLower == 'arrived' || arrival > 0)
+                            _buildDetailTile(
+                              Icons.login_rounded,
+                              "Arrived",
+                              arrivalTime,
+                              IndicatorColors.arrival.text,
+                              subValue: arrivalTimeAgo,
+                            ),
+                        ],
                       ),
-
-                      const SizedBox(height: 24),
-
-                      // --- Image Proof Flat Container ---
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 8),
-                        child: Text(
-                          "LATEST LIVE PROOF",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: textSecondary,
-                            letterSpacing: 0.5,
+                      const SizedBox(height: 16),
+                      _buildSectionCard(
+                        "Latest Live Proof",
+                        Icons.image_rounded,
+                        primaryDark,
+                        borderColor,
+                        [
+                          Container(
+                            height: 220,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: sectionBgColor,
+                              border: Border.all(color: borderColor),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: proofUrl != null
+                                ? Image.network(
+                                    proofUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder:
+                                        (context, error, stackTrace) =>
+                                            _buildImageError(),
+                                  )
+                                : _buildImageError(
+                                    message: "No proof image uploaded",
+                                  ),
                           ),
-                        ),
+                        ],
                       ),
-                      Container(
-                        height: 200,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          color: sectionBgColor,
-                          border: Border.all(color: borderColor),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: proofUrl != null
-                            ? Image.network(
-                                proofUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) =>
-                                    _buildImageError(),
-                              )
-                            : _buildImageError(
-                                message: "No proof image uploaded",
-                              ),
-                      ),
-
-                      const SizedBox(height: 20),
                     ],
                   ),
                 ),
-
-                // --- STICKY BOTTOM BUTTON (Directions) ---
                 if (statusLower == 'onboarding' &&
                     originLat != null &&
                     originLng != null)
                   Container(
                     padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-                    decoration: const BoxDecoration(
-                      color: bgColor,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
                       border: Border(top: BorderSide(color: borderColor)),
                     ),
                     width: double.infinity,
@@ -553,7 +410,7 @@ class _VesselTrackingState extends State<VesselTracking> {
                           foregroundColor: Colors.white,
                           elevation: 0,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         ),
                         icon: const Icon(
@@ -578,48 +435,220 @@ class _VesselTrackingState extends State<VesselTracking> {
     );
   }
 
-  // --- Flat UI Helpers ---
+  Widget _buildHeroCard(
+    String vesselName,
+    String displayLabel,
+    String? dockedLabel,
+    StatusColors statusColors,
+    Color textPrimary,
+    Color textSecondary,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: statusColors.border),
+        boxShadow: [
+          BoxShadow(
+            color: statusColors.text.withValues(alpha: 0.10),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: statusColors.background,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: statusColors.border),
+            ),
+            child: Icon(
+              Icons.directions_boat_filled_rounded,
+              color: statusColors.text,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  vesselName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 20,
+                    height: 1.1,
+                    fontWeight: FontWeight.w900,
+                    color: textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  "Live vessel information",
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: [
+                    _buildDynamicStatusBadge(displayLabel, statusColors),
+                    if (dockedLabel != null)
+                      _buildSmallBadge(
+                        dockedLabel,
+                        const Color(0xFF475569),
+                        const Color(0xFFF1F5F9),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-  Widget _buildFlatRow(
+  Widget _buildSectionCard(
+    String title,
+    IconData icon,
+    Color primaryDark,
+    Color borderColor,
+    List<Widget> children,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: primaryDark.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: primaryDark, size: 19),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: TextStyle(
+                  color: primaryDark,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (children.isEmpty)
+            _buildDetailTile(
+              Icons.info_outline_rounded,
+              "Status",
+              "No timeline available",
+              const Color(0xFF6B7280),
+            )
+          else
+            ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailTile(
     IconData icon,
     String label,
     String value,
     Color valueColor, {
     String? subValue,
   }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
       child: Row(
         children: [
-          Icon(icon, color: const Color(0xFF9CA3AF), size: 20),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 14, color: Color(0xFF4B5563)),
-          ),
-          const Spacer(),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: valueColor,
-                ),
-              ),
-              if (subValue != null && subValue.isNotEmpty)
+          Icon(icon, color: valueColor, size: 19),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Text(
-                  subValue,
+                  label,
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF9CA3AF),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF6B7280),
                   ),
                 ),
-            ],
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: valueColor,
+                  ),
+                ),
+                if (subValue != null && subValue.isNotEmpty)
+                  Text(
+                    subValue,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF9CA3AF),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSmallBadge(String label, Color textColor, Color background) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: textColor.withValues(alpha: 0.12)),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: textColor,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }

@@ -537,7 +537,6 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
     int departed = 0;
     int arrival = 0;
     int onboardingTime = 0;
-    int travelDuration = 170;
     int estimatedLatest = 0;
     String passengerLevel = "medium";
     String noScheduleReason = "";
@@ -552,11 +551,6 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
       arrival = int.tryParse(statusData['arrival']?.toString() ?? "0") ?? 0;
       onboardingTime =
           int.tryParse(statusData['onboarding_time']?.toString() ?? "0") ?? 0;
-      travelDuration =
-          int.tryParse(
-            statusData['travel_duration_minutes']?.toString() ?? "170",
-          ) ??
-          170;
       estimatedLatest =
           int.tryParse(
             statusData['estimated_transition_latest']?.toString() ?? "0",
@@ -585,18 +579,7 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
     final statusColor = _getStatusColor(displayStatus);
 
     if (displayStatus.toLowerCase() == 'departed' && departed > 0) {
-      final etaEpoch = estimatedLatest > 0
-          ? estimatedLatest
-          : departed + (travelDuration * 60 * 1000);
-      final etaTime = Utility().formatEpochToTime(etaEpoch);
-      timeDetail = "ETA: $etaTime";
-
-      // Calculate travel progress factor
-      final int now = DateTime.now().millisecondsSinceEpoch;
-      final int totalTravelTime = travelDuration * 60 * 1000;
-      if (now > departed) {
-        progress = ((now - departed) / totalTravelTime).clamp(0.0, 1.0);
-      }
+      timeDetail = "Departed ${Utility().getEpochTimeAgo(departed)}";
     } else if (displayStatus.toLowerCase() == 'onboarding' &&
         onboardingTime > 0) {
       timeDetail = estimatedLatest > 0
@@ -617,7 +600,9 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
         'no_schedule') {
       timeDetail = noScheduleReason.isEmpty ? "Unavailable" : noScheduleReason;
     }
-    final passengerLabel = passengerLevel.replaceAll('_', ' ').toUpperCase();
+    final passengerLabel = displayStatus.toLowerCase() == 'docked'
+        ? "-:-"
+        : passengerLevel.replaceAll('_', ' ').toUpperCase();
     timeDetail = timeDetail.isEmpty
         ? passengerLabel
         : "$passengerLabel · $timeDetail";

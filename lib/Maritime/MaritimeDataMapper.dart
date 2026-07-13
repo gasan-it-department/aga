@@ -51,8 +51,13 @@ class MaritimeDataMapper {
     final startedAt = epoch(operation['status_started_at']);
     final earliestAt = epoch(operation['estimated_transition_earliest_at']);
     final latestAt = epoch(operation['estimated_transition_latest_at']);
-    final departedAt = epoch(operation['actual_departed_at']);
-    final arrivedAt = epoch(operation['actual_arrived_at']);
+    final isDepartedOrArrived = status == 'departed' || status == 'arrived';
+    final departedAt = isDepartedOrArrived
+        ? epoch(operation['actual_departed_at'])
+        : 0;
+    final arrivedAt = status == 'arrived'
+        ? epoch(operation['actual_arrived_at'])
+        : 0;
     final duration = latestAt > startedAt
         ? ((latestAt - startedAt) / Duration.millisecondsPerMinute).round()
         : 0;

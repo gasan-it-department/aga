@@ -50,7 +50,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
 
   XFile? _finalCapturedImage;
 
-  // Flow control
   String _currentStatus = 'Docked';
   String _selectedStatus = 'Onboarding';
   bool _overrideMode = false;
@@ -65,6 +64,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   final TextEditingController _timerMinutesController = TextEditingController();
   String _weatherCondition = 'moderate';
   String _passengerLevel = 'medium';
+  String _currentDockedState = 'docked';
   String _dockedState = 'docked';
   double _timerMinutes = 45;
 
@@ -75,19 +75,13 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   final DateTime _currentTime = DateTime.now();
 
   SharedPreferences? _preferences;
-  static const List<String> _statusFlow = [
-    'Docked',
-    'Onboarding',
-    'Departed',
-    'Arrived',
-  ];
-
   @override
   void initState() {
     super.initState();
 
     _currentStatus = _statusLabel(widget.currentStatus ?? 'docked');
-    _dockedState = widget.dockedState ?? 'docked';
+    _currentDockedState = widget.dockedState ?? 'docked';
+    _dockedState = _currentDockedState;
     final month = DateTime.now().month;
     if (month == 11 || month == 12) {
       _passengerLevel = 'heavy';
@@ -95,7 +89,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
       _passengerLevel = 'medium';
     }
 
-    // Normalize status casing
     _determineNextStatus();
     _resetTimerForStatus();
 
@@ -109,20 +102,36 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   void _determineNextStatus() {
     if (_statusCode(_currentStatus) == 'no_schedule') {
       _selectedStatus = 'Docked';
+      _dockedState = 'docked';
       return;
     }
-    final currentStepIndex = _flowIndexForStatus(_currentStatus);
-    final nextStepIndex = (currentStepIndex + 1) % _statusFlow.length;
-    _selectedStatus = _statusFlow[nextStepIndex];
+    if (_statusCode(_currentStatus) == 'docked') {
+      if (_currentDockedState == 'docked') {
+        _selectedStatus = 'Docked';
+        _dockedState = 'tba';
+      } else if (_currentDockedState == 'tba') {
+        _selectedStatus = 'Docked';
+        _dockedState = 'preparing';
+      } else {
+        _selectedStatus = 'Onboarding';
+        _dockedState = 'docked';
+      }
+      return;
+    }
+    if (_statusCode(_currentStatus) == 'onboarding') {
+      _selectedStatus = 'Departed';
+      return;
+    }
+    _selectedStatus = 'Docked';
+    _dockedState = 'docked';
   }
 
-  int _flowIndexForStatus(String status) {
-    final statusLower = _statusCode(status);
-    if (statusLower == 'docked') return 0;
-    final index = _statusFlow.indexWhere(
-      (step) => step.toLowerCase() == statusLower,
-    );
-    return index < 0 ? 0 : index;
+  void _useAutomaticNextStatus() {
+    setState(() {
+      _overrideMode = false;
+      _determineNextStatus();
+      _resetTimerForStatus();
+    });
   }
 
   String _statusCode(String status) {
@@ -141,10 +150,26 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   }
 
   String _currentStatusLabel() {
-    if (_statusCode(_currentStatus) == 'docked' && _dockedState != 'docked') {
-      return 'Docked | ${_dockedState == 'tba' ? 'TBA' : 'Preparing'}';
-    }
     return _currentStatus;
+  }
+
+  String _nextStatusLabel() {
+    return _selectedStatus;
+  }
+
+  String? _currentDockedStateLabel() {
+    if (_statusCode(_currentStatus) != 'docked' ||
+        _currentDockedState == 'docked') {
+      return null;
+    }
+    return _currentDockedState == 'tba' ? 'TBA' : 'Preparing';
+  }
+
+  String? _nextDockedStateLabel() {
+    if (_statusCode(_selectedStatus) != 'docked' || _dockedState == 'docked') {
+      return null;
+    }
+    return _dockedState == 'tba' ? 'TBA' : 'Preparing';
   }
 
   ({double minimum, double maximum, double initial}) _timerSettings() {
@@ -153,13 +178,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         return (minimum: 30, maximum: 60, initial: 45);
       case 'onboarding':
         return (minimum: 60, maximum: 120, initial: 90);
-      case 'departed':
-        final initial = switch (_weatherCondition) {
-          'good' => 165.0,
-          'rough' => 210.0,
-          _ => 185.0,
-        };
-        return (minimum: 165, maximum: 210, initial: initial);
       default:
         return (minimum: 0, maximum: 0, initial: 0);
     }
@@ -167,7 +185,11 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
 
   void _resetTimerForStatus() {
     final settings = _timerSettings();
-    _timerMinutes = settings.initial;
+    final savedTimer = _preferences?.getInt(_timerPreferenceKey());
+    _timerMinutes = (savedTimer?.toDouble() ?? settings.initial).clamp(
+      settings.minimum,
+      settings.maximum,
+    );
     _timerMinutesController.text = _timerMinutes.round().toString();
   }
 
@@ -185,8 +207,59 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     _setTimerMinutes(value ?? _timerSettings().initial);
   }
 
+  Future<void> _deleteProofImage(String? path) async {
+    if (path == null || path.trim().isEmpty) return;
+    try {
+      await supabase.storage.from('vessel-status-proofs').remove([path]);
+    } catch (error) {
+      debugPrint('Proof cleanup skipped: $error');
+    }
+  }
+
   Future<void> _initPrefs() async {
     _preferences = await SharedPreferences.getInstance();
+    _loadSavedStatusDefaults();
+  }
+
+  String _timerPreferenceKey() {
+    final status = _statusCode(_selectedStatus);
+    if (status == 'docked' && _dockedState == 'preparing') {
+      return 'maritime_timer_docked_preparing';
+    }
+    return 'maritime_timer_$status';
+  }
+
+  void _loadSavedStatusDefaults() {
+    final savedPassenger = _preferences?.getString('maritime_passenger_level');
+    final savedTimer = _preferences?.getInt(_timerPreferenceKey());
+    final allowedPassengerLevels = {'light', 'medium', 'heavy', 'very_heavy'};
+    if (!mounted) return;
+    setState(() {
+      if (savedPassenger != null &&
+          allowedPassengerLevels.contains(savedPassenger)) {
+        _passengerLevel = savedPassenger;
+      }
+      if (savedTimer != null) {
+        final settings = _timerSettings();
+        final adjusted = savedTimer.toDouble().clamp(
+          settings.minimum,
+          settings.maximum,
+        );
+        _timerMinutes = adjusted;
+        _timerMinutesController.text = adjusted.round().toString();
+      }
+    });
+  }
+
+  Future<void> _saveStatusDefaults() async {
+    await _preferences?.setString('maritime_passenger_level', _passengerLevel);
+    final status = _statusCode(_selectedStatus);
+    final shouldSaveTimer =
+        (status == 'docked' && _dockedState == 'preparing') ||
+        status == 'onboarding';
+    if (shouldSaveTimer) {
+      await _preferences?.setInt(_timerPreferenceKey(), _timerMinutes.round());
+    }
   }
 
   Future<void> _fetchPorts() async {
@@ -204,7 +277,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
               .map((p) => p['port_id'].toString())
               .toList();
 
-          // Set up defaults based on current status and parameters
           if (widget.originId != null && allPortIds.contains(widget.originId)) {
             _originPortId = widget.originId;
             _currentPortId = widget.originId;
@@ -214,7 +286,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
             _destinationPortId = widget.destinationId;
           }
 
-          // If transitioning from Departed to Docked, destinationPortId becomes the new docked location
           if (['departed', 'arrived'].contains(_statusCode(_currentStatus)) &&
               _destinationPortId != null) {
             _currentPortId = _destinationPortId;
@@ -334,11 +405,13 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         statusLower == 'arrived' ||
         statusLower == 'onboarding';
 
-    if (['docked', 'onboarding', 'departed'].contains(statusLower)) {
+    if (['docked', 'onboarding'].contains(statusLower)) {
       _validateTimerInput();
     }
 
-    if (_finalCapturedImage == null) {
+    final bool requiresProofImage = statusLower != 'docked';
+
+    if (requiresProofImage && _finalCapturedImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("Please capture a photo proof first!"),
@@ -382,6 +455,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     }
 
     setState(() => _isUploading = true);
+    String? uploadedProofPath;
 
     try {
       final userId = supabase.auth.currentUser?.id;
@@ -419,19 +493,22 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         return int.tryParse(routeProfile?[key]?.toString() ?? '') ?? fallback;
       }
 
-      final String fileExt = _finalCapturedImage!.name.split('.').last;
       final now = DateTime.now().toUtc();
-      final String fileName =
-          '${widget.vesselId}/${now.millisecondsSinceEpoch}.$fileExt';
-      final Uint8List fileBytes = await _finalCapturedImage!.readAsBytes();
+      String? fileName;
+      if (_finalCapturedImage != null) {
+        final String fileExt = _finalCapturedImage!.name.split('.').last;
+        fileName = '${widget.vesselId}/${now.millisecondsSinceEpoch}.$fileExt';
+        final Uint8List fileBytes = await _finalCapturedImage!.readAsBytes();
 
-      await supabase.storage
-          .from('vessel-status-proofs')
-          .uploadBinary(
-            fileName,
-            fileBytes,
-            fileOptions: const FileOptions(upsert: false),
-          );
+        await supabase.storage
+            .from('vessel-status-proofs')
+            .uploadBinary(
+              fileName,
+              fileBytes,
+              fileOptions: const FileOptions(upsert: false),
+            );
+        uploadedProofPath = fileName;
+      }
 
       String? trueOrigin = isRouteStatus ? _originPortId : _currentPortId;
       String? trueDestination = isRouteStatus ? _destinationPortId : null;
@@ -452,8 +529,19 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
           Duration(minutes: routeMinutes('boarding_close_buffer_minutes', 15)),
         );
       } else if (statusLower == 'departed') {
-        earliest = now.add(Duration(minutes: _timerMinutes.round()));
+        final minutes = routeMinutes(
+          '${_weatherCondition}_weather_minutes',
+          {'good': 165, 'moderate': 185, 'rough': 210}[_weatherCondition]!,
+        );
+        earliest = now.add(Duration(minutes: minutes));
         latest = earliest;
+      }
+
+      String? departedAtValue;
+      if (statusLower == 'departed') {
+        departedAtValue = now.toIso8601String();
+      } else if (statusLower == 'arrived') {
+        departedAtValue = activeOperation?['actual_departed_at']?.toString();
       }
 
       final payload = <String, dynamic>{
@@ -468,9 +556,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         'estimated_transition_earliest_at': earliest?.toIso8601String(),
         'estimated_transition_latest_at': latest?.toIso8601String(),
         'boarding_closes_at': boardingCloses?.toIso8601String(),
-        'actual_departed_at': statusLower == 'departed'
-            ? now.toIso8601String()
-            : activeOperation?['actual_departed_at'],
+        'actual_departed_at': departedAtValue,
         'actual_arrived_at': statusLower == 'arrived'
             ? now.toIso8601String()
             : null,
@@ -486,8 +572,8 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         'passenger_level': _passengerLevel,
         'passenger_level_source': 'manual',
         'proof_image_path': fileName,
-        'proof_uploaded_at': now.toIso8601String(),
-        'proof_uploaded_by': userId,
+        'proof_uploaded_at': fileName == null ? null : now.toIso8601String(),
+        'proof_uploaded_by': fileName == null ? null : userId,
         'last_confirmed_at': now.toIso8601String(),
         'updated_by': userId,
       };
@@ -534,10 +620,16 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         'passenger_level': _passengerLevel,
         'passenger_level_source': 'manual',
         'proof_image_path': fileName,
-        'proof_uploaded_at': now.toIso8601String(),
-        'proof_uploaded_by': userId,
+        'proof_uploaded_at': fileName == null ? null : now.toIso8601String(),
+        'proof_uploaded_by': fileName == null ? null : userId,
         'changed_by': userId,
       });
+
+      final oldProofPath = activeOperation?['proof_image_path']?.toString();
+      if (fileName != null && oldProofPath != fileName) {
+        await _deleteProofImage(oldProofPath);
+      }
+      await _saveStatusDefaults();
 
       String userName = _preferences?.getString("user_name") ?? "An Admin";
       String assignedPort =
@@ -560,6 +652,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         onClose: () => Navigator.pop(context),
       );
     } catch (e) {
+      await _deleteProofImage(uploadedProofPath);
       debugPrint("Upload Error: $e");
       setState(() => _isUploading = false);
       _showClassicDialog(
@@ -600,495 +693,134 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Vessel Header Card
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: outlineColor),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.02),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+                _buildVesselHeaderCard(),
+                const SizedBox(height: 16),
+                _buildAdminFlowCard(),
+                const SizedBox(height: 16),
+                if (_overrideMode) ...[
+                  _buildOverridePanel(statusLower),
+                  const SizedBox(height: 16),
+                ],
+                _buildPhotoProofCard(),
+                const SizedBox(height: 16),
+                _buildSectionCard(
+                  title: "Operation Details",
+                  icon: Icons.fact_check_rounded,
+                  children: [
+                    if ((statusLower == 'docked' &&
+                            _dockedState == 'preparing') ||
+                        statusLower == 'onboarding') ...[
+                      _buildTimerEditor(),
+                      const SizedBox(height: 18),
+                    ],
+                    if (statusLower == 'departed') ...[
+                      _buildChoiceDropdown(
+                        "WEATHER CONDITION",
+                        _weatherCondition,
+                        const {
+                          'good': 'Good',
+                          'moderate': 'Moderate',
+                          'rough': 'Rough',
+                        },
+                        (value) {
+                          setState(() {
+                            _weatherCondition = value;
+                            _resetTimerForStatus();
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                    ],
+                    _buildChoiceDropdown(
+                      "PASSENGER LEVEL",
+                      _passengerLevel,
+                      const {
+                        'light': 'Light',
+                        'medium': 'Medium',
+                        'heavy': 'Heavy',
+                        'very_heavy': 'Very Heavy',
+                      },
+                      (value) {
+                        setState(() => _passengerLevel = value);
+                        _preferences?.setString(
+                          'maritime_passenger_level',
+                          value,
+                        );
+                      },
+                    ),
+                    if (statusLower == 'no_schedule') ...[
+                      const SizedBox(height: 18),
+                      _buildTextInput(
+                        "NO SCHEDULE REASON",
+                        _noScheduleReasonController,
+                        "Typhoon, maintenance, port closure, or another reason",
                       ),
                     ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.directions_boat_rounded,
-                            color: primaryDark,
-                            size: 22,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              widget.vesselName,
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w900,
-                                color: primaryDark,
-                              ),
-                            ),
-                          ),
-                        ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+                _buildSectionCard(
+                  title: isRouteStatus ? "Route" : "Current Location",
+                  icon: isRouteStatus
+                      ? Icons.route_rounded
+                      : Icons.anchor_rounded,
+                  children: [
+                    if (isRouteStatus) ...[
+                      _buildPortDropdown(
+                        "Origin",
+                        _originPortId,
+                        (_currentStatus.toLowerCase() == 'onboarding' ||
+                                    _currentStatus.toLowerCase() ==
+                                        'departed') &&
+                                !_overrideMode
+                            ? null
+                            : (val) => setState(() => _originPortId = val),
                       ),
                       const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 10),
-                        child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Icon(
+                          Icons.arrow_downward_rounded,
+                          color: Color(0xFFCBD5E1),
+                          size: 20,
+                        ),
                       ),
-                      Row(
-                        children: [
-                          const Text(
-                            "Current Status: ",
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF64748B),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(
-                                _currentStatus,
-                              ).withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              _currentStatusLabel().toUpperCase(),
-                              style: TextStyle(
-                                color: _getStatusColor(_currentStatus),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          ),
-                        ],
+                      _buildPortDropdown(
+                        "Destination",
+                        _destinationPortId,
+                        _currentStatus.toLowerCase() == 'departed' &&
+                                !_overrideMode
+                            ? null
+                            : (val) => setState(() => _destinationPortId = val),
+                      ),
+                    ] else ...[
+                      _buildPortDropdown(
+                        "Select Port",
+                        _currentPortId,
+                        (val) => setState(() => _currentPortId = val),
                       ),
                     ],
-                  ),
+                  ],
                 ),
-                const SizedBox(height: 20),
-
-                if (!_overrideMode) ...[
-                  _buildAdminFlowCard(),
-                  const SizedBox(height: 20),
-                ],
-
-                const Text(
-                  "2. PHOTO PROOF",
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF64748B),
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                GestureDetector(
-                  onTap: _isUploading ? null : _pickProofImage,
-                  child: Container(
-                    height: 200,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: _finalCapturedImage == null
-                          ? Colors.white
-                          : Colors.black,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: _finalCapturedImage == null
-                            ? accentBlue.withValues(alpha: 0.5)
-                            : outlineColor,
-                        width: _finalCapturedImage == null ? 2 : 1,
-                      ),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: _finalCapturedImage != null
-                          ? Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                kIsWeb
-                                    ? Image.network(
-                                        _finalCapturedImage!.path,
-                                        fit: BoxFit.cover,
-                                      )
-                                    : Image.file(
-                                        File(_finalCapturedImage!.path),
-                                        fit: BoxFit.cover,
-                                      ),
-                                Positioned(
-                                  bottom: 12,
-                                  right: 12,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black87,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Row(
-                                      children: [
-                                        Icon(
-                                          Icons.edit_rounded,
-                                          color: Colors.white,
-                                          size: 14,
-                                        ),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          "Change Photo",
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            )
-                          : Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.add_a_photo_rounded,
-                                  size: 48,
-                                  color: accentBlue.withValues(alpha: 0.5),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  "Tap to capture live proof",
-                                  style: TextStyle(
-                                    color: accentBlue,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                Offstage(
-                  offstage: true,
-                  child: StatefulBuilder(
-                    builder: (context, stateSetter) {
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: outlineColor),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.calendar_today_rounded,
-                                        size: 14,
-                                        color: Color(0xFF3B82F6),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        "CURRENT DATE",
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w900,
-                                          color: Color(0xFF94A3B8),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    _getFormattedDate(),
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w900,
-                                      color: textPrimary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: outlineColor),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.access_time_filled_rounded,
-                                        size: 14,
-                                        color: Color(0xFF10B981),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Text(
-                                        "LOCAL TIME",
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w900,
-                                          color: Color(0xFF94A3B8),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    _getFormattedTime(),
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w900,
-                                      color: textPrimary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox.shrink(),
-
-                if (_overrideMode) ...[
-                  const Text(
-                    "OVERRIDE VESSEL STATUS",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFFEF4444),
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFFCA5A5)),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        isExpanded: true,
-                        value: _selectedStatus,
-                        icon: const Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          color: Color(0xFFEF4444),
-                        ),
-                        items: VesselStatus().statusList.map((String status) {
-                          return DropdownMenuItem<String>(
-                            value: status,
-                            child: Text(
-                              status.toUpperCase(),
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF7F1D1D),
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: _isUploading
-                            ? null
-                            : (String? newValue) {
-                                if (newValue != null) {
-                                  setState(() {
-                                    _selectedStatus = newValue;
-                                    _resetTimerForStatus();
-                                  });
-                                }
-                              },
-                      ),
-                    ),
-                  ),
-                  _buildFlowStepper(),
-                  const SizedBox(height: 24),
-                ],
-
-                if ((statusLower == 'docked' && _dockedState == 'preparing') ||
-                    statusLower == 'onboarding' ||
-                    statusLower == 'departed') ...[
-                  _buildTimerEditor(),
-                  const SizedBox(height: 24),
-                ],
-
-                if (statusLower == 'departed') ...[
-                  _buildChoiceDropdown(
-                    "WEATHER CONDITION",
-                    _weatherCondition,
-                    const {
-                      'good': 'Good',
-                      'moderate': 'Moderate',
-                      'rough': 'Rough',
-                    },
-                    (value) {
-                      setState(() {
-                        _weatherCondition = value;
-                        _resetTimerForStatus();
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 24),
-                ],
-
-                _buildChoiceDropdown(
-                  "PASSENGER LEVEL",
-                  _passengerLevel,
-                  const {
-                    'light': 'Light',
-                    'medium': 'Medium',
-                    'heavy': 'Heavy',
-                    'very_heavy': 'Very Heavy',
-                  },
-                  (value) => setState(() => _passengerLevel = value),
-                ),
-                const SizedBox(height: 24),
-
-                if (statusLower == 'no_schedule') ...[
-                  _buildTextInput(
-                    "NO SCHEDULE REASON",
-                    _noScheduleReasonController,
-                    "Typhoon, maintenance, port closure, or another reason",
-                  ),
-                  const SizedBox(height: 24),
-                ],
-
-                if (isRouteStatus) ...[
-                  const Text(
-                    "ROUTE INFORMATION",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF64748B),
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // If transitioning to Departed or Docked from an existing route, origin port can be locked
-                  _buildPortDropdown(
-                    "Origin",
-                    _originPortId,
-                    (_currentStatus.toLowerCase() == 'onboarding' ||
-                                _currentStatus.toLowerCase() == 'departed') &&
-                            !_overrideMode
-                        ? null
-                        : (val) => setState(() => _originPortId = val),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Icon(
-                      Icons.arrow_downward_rounded,
-                      color: Color(0xFFCBD5E1),
-                      size: 20,
-                    ),
-                  ),
-                  _buildPortDropdown(
-                    "Destination",
-                    _destinationPortId,
-                    _currentStatus.toLowerCase() == 'departed' && !_overrideMode
-                        ? null
-                        : (val) => setState(() => _destinationPortId = val),
-                  ),
-                ] else ...[
-                  const Text(
-                    "CURRENT LOCATION (PORT)",
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Color(0xFF64748B),
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildPortDropdown(
-                    "Select Port",
-                    _currentPortId,
-                    (val) => setState(() => _currentPortId = val),
-                  ),
-                ],
-
-                const SizedBox(height: 24),
-
-                _buildTextInput(
-                  "STATUS NOTE",
-                  _statusNoteController,
-                  "Optional operational note",
-                ),
-
-                const SizedBox(height: 24),
-
+                const SizedBox(height: 16),
                 if (isRouteStatus &&
                     _originPortId != null &&
                     _destinationPortId != null)
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 24),
-                    child: Builder(
-                      builder: (context) {
-                        String summaryText = "";
-                        if (statusLower == 'arrived' ||
-                            statusLower == 'docked') {
-                          summaryText =
-                              "Arrived at ${_getPortName(_destinationPortId).toUpperCase()} from ${_getPortName(_originPortId).toUpperCase()}";
-                        } else if (statusLower == 'departed') {
-                          summaryText =
-                              "Departing from ${_getPortName(_originPortId).toUpperCase()} to ${_getPortName(_destinationPortId).toUpperCase()}";
-                        } else if (statusLower == 'onboarding') {
-                          summaryText =
-                              "Onboarding at ${_getPortName(_originPortId).toUpperCase()} bound for ${_getPortName(_destinationPortId).toUpperCase()}";
-                        }
-                        return Text(
-                          summaryText,
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: accentBlue,
-                          ),
-                          textAlign: TextAlign.center,
-                        );
-                      },
-                    ),
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: _buildRouteSummary(statusLower),
                   ),
-
+                _buildSectionCard(
+                  title: "Note",
+                  icon: Icons.edit_note_rounded,
+                  children: [
+                    _buildTextInput(
+                      "STATUS NOTE",
+                      _statusNoteController,
+                      "Optional operational note",
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
                 SizedBox(
                   height: 56,
                   child: ElevatedButton(
@@ -1122,268 +854,10 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                   ),
                 ),
                 const SizedBox(height: 20),
-
-                // Reset/Override option
-                Center(
-                  child: TextButton.icon(
-                    icon: Icon(
-                      _overrideMode
-                          ? Icons.check_circle_outline_rounded
-                          : Icons.warning_amber_rounded,
-                      size: 16,
-                    ),
-                    label: Text(
-                      _overrideMode
-                          ? "Back to Flow Sequence"
-                          : "More status options",
-                    ),
-                    style: TextButton.styleFrom(
-                      foregroundColor: _overrideMode
-                          ? accentBlue
-                          : textSecondary,
-                      textStyle: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _overrideMode = !_overrideMode;
-                        if (_overrideMode) {
-                          _selectedStatus = _currentStatus;
-                        } else {
-                          _determineNextStatus();
-                        }
-                        _resetTimerForStatus();
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(height: 20),
               ],
             ),
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildFlowStepper() {
-    final steps = _statusFlow;
-    final currentStepIndex = _flowIndexForStatus(_currentStatus);
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: outlineColor),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                "FLOW PROGRESSION",
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFF64748B),
-                  letterSpacing: 1.2,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  "STEP ${currentStepIndex + 1} OF ${steps.length}",
-                  style: const TextStyle(
-                    color: Color(0xFF1E40AF),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          ...List.generate(steps.length, (index) {
-            final isPassed = index < currentStepIndex;
-            final isCurrent = index == currentStepIndex;
-            final isNext = index == currentStepIndex + 1;
-            final isLast = index == steps.length - 1;
-
-            Color stepColor = const Color(0xFFCBD5E1);
-            String desc = "";
-            if (index == 0) {
-              desc =
-                  "Vessel is docked. Ready for cargo, vehicle and passenger loading.";
-            } else if (index == 1) {
-              desc =
-                  "Passengers onboarding. Recording duration and boarding metrics.";
-            } else if (index == 2) {
-              desc = "Vessel has left the port. En route to destination.";
-            } else if (index == 3) {
-              desc =
-                  "Vessel has reached its destination and completed the route.";
-            }
-
-            if (isCurrent) {
-              stepColor = accentBlue;
-            } else if (isPassed) {
-              stepColor = const Color(0xFF10B981);
-            } else if (isNext) {
-              stepColor = const Color(0xFF64748B);
-            }
-
-            return IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Timeline column
-                  Column(
-                    children: [
-                      // Bubble
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: isCurrent
-                              ? stepColor
-                              : (isPassed
-                                    ? const Color(0xFFE8F5E9)
-                                    : Colors.white),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: stepColor,
-                            width: isCurrent ? 3 : 2,
-                          ),
-                          boxShadow: isCurrent
-                              ? [
-                                  BoxShadow(
-                                    color: stepColor.withValues(alpha: 0.3),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: Center(
-                          child: isPassed
-                              ? const Icon(
-                                  Icons.check_rounded,
-                                  size: 14,
-                                  color: Color(0xFF10B981),
-                                )
-                              : Text(
-                                  (index + 1).toString(),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w900,
-                                    color: isCurrent ? Colors.white : stepColor,
-                                  ),
-                                ),
-                        ),
-                      ),
-                      // Connector line
-                      if (!isLast)
-                        Expanded(
-                          child: Container(
-                            width: 2.5,
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            color: isPassed
-                                ? const Color(0xFF10B981)
-                                : const Color(0xFFE2E8F0),
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(width: 14),
-                  // Content column
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              steps[index],
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: isCurrent
-                                    ? FontWeight.w900
-                                    : FontWeight.bold,
-                                color: isCurrent
-                                    ? primaryDark
-                                    : (isPassed
-                                          ? const Color(0xFF1E293B)
-                                          : const Color(0xFF94A3B8)),
-                              ),
-                            ),
-                            if (isCurrent) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: accentBlue.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
-                                    color: accentBlue.withValues(alpha: 0.2),
-                                  ),
-                                ),
-                                child: Text(
-                                  "ACTIVE",
-                                  style: TextStyle(
-                                    fontSize: 8.5,
-                                    fontWeight: FontWeight.w900,
-                                    color: accentBlue,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          desc,
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            height: 1.35,
-                            fontWeight: isCurrent
-                                ? FontWeight.w600
-                                : FontWeight.w500,
-                            color: isCurrent
-                                ? const Color(0xFF334155)
-                                : const Color(0xFF64748B),
-                          ),
-                        ),
-                        if (!isLast) const SizedBox(height: 20),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }),
-        ],
       ),
     );
   }
@@ -1398,106 +872,605 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     return 'Update to $_selectedStatus';
   }
 
+  Widget _buildVesselHeaderCard() {
+    final statusColor = _getStatusColor(_currentStatus);
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: primaryDark,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: primaryDark.withValues(alpha: 0.16),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.directions_boat_filled_rounded,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.vesselName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _buildStatusPill(
+                      _currentStatusLabel(),
+                      statusColor,
+                      backgroundColor: Colors.white,
+                    ),
+                    if (_currentDockedStateLabel() != null)
+                      _buildStatusPill(
+                        _currentDockedStateLabel()!,
+                        const Color(0xFF64748B),
+                        backgroundColor: Colors.white,
+                      ),
+                    Text(
+                      "${_getFormattedDate()} • ${_getFormattedTime()}",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white.withValues(alpha: 0.74),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAdminFlowCard() {
-    final currentStatus = _statusCode(_currentStatus);
-    final selectedStatus = _statusCode(_selectedStatus);
-    final showDockedActions =
-        currentStatus == 'docked' || selectedStatus == 'docked';
+    final nextColor = _overrideMode ? const Color(0xFFEF4444) : accentBlue;
+    final modeLabel = _overrideMode ? "MANUAL" : "AUTO";
+    final modeColor = _overrideMode ? const Color(0xFFEF4444) : accentBlue;
 
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: outlineColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.025),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: modeColor.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  _overrideMode ? Icons.tune_rounded : Icons.auto_mode_rounded,
+                  color: modeColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _overrideMode ? "Manual Status Change" : "Next Status",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    _buildStatusPill(modeLabel, modeColor),
+                  ],
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _isUploading
+                    ? null
+                    : () {
+                        if (_overrideMode) {
+                          _useAutomaticNextStatus();
+                        } else {
+                          setState(() {
+                            _overrideMode = true;
+                            _selectedStatus = _currentStatus;
+                            _dockedState = _currentDockedState;
+                            _resetTimerForStatus();
+                          });
+                        }
+                      },
+                icon: Icon(
+                  _overrideMode ? Icons.auto_mode_rounded : Icons.tune_rounded,
+                  size: 16,
+                ),
+                label: Text(_overrideMode ? 'Auto' : 'Override'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: modeColor,
+                  side: BorderSide(color: modeColor.withValues(alpha: 0.28)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isNarrow = constraints.maxWidth < 360;
+              final currentBlock = _buildStatusBlock(
+                "CURRENT",
+                _currentStatusLabel(),
+                _getStatusColor(_currentStatus),
+                subBadge: _currentDockedStateLabel(),
+              );
+              final nextBlock = _buildStatusBlock(
+                _overrideMode ? "TARGET" : "NEXT",
+                _nextStatusLabel(),
+                nextColor,
+                subBadge: _nextDockedStateLabel(),
+              );
+              final arrow = Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: nextColor.withValues(alpha: 0.10),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isNarrow
+                      ? Icons.keyboard_arrow_down_rounded
+                      : Icons.arrow_forward_rounded,
+                  color: nextColor,
+                  size: 20,
+                ),
+              );
+
+              if (isNarrow) {
+                return Column(
+                  children: [
+                    currentBlock,
+                    const SizedBox(height: 10),
+                    arrow,
+                    const SizedBox(height: 10),
+                    nextBlock,
+                  ],
+                );
+              }
+
+              return Row(
+                children: [
+                  Expanded(child: currentBlock),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: arrow,
+                  ),
+                  Expanded(child: nextBlock),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOverridePanel(String statusLower) {
+    return _buildSectionCard(
+      title: "Manual Override",
+      icon: Icons.tune_rounded,
+      toneColor: const Color(0xFFEF4444),
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFEF2F2),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFFCA5A5)),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: _selectedStatus,
+              icon: const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: Color(0xFFEF4444),
+              ),
+              items: VesselStatus().statusList.map((String status) {
+                return DropdownMenuItem<String>(
+                  value: status,
+                  child: Text(
+                    status.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF7F1D1D),
+                    ),
+                  ),
+                );
+              }).toList(),
+              onChanged: _isUploading
+                  ? null
+                  : (String? newValue) {
+                      if (newValue != null) {
+                        setState(() {
+                          _selectedStatus = newValue;
+                          if (_statusCode(newValue) != 'docked') {
+                            _dockedState = 'docked';
+                          }
+                          _resetTimerForStatus();
+                        });
+                      }
+                    },
+            ),
+          ),
+        ),
+        if (statusLower == 'docked') ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children:
+                {
+                  'docked': 'Docked',
+                  'tba': 'Docked | TBA',
+                  'preparing': 'Docked | Preparing',
+                }.entries.map((entry) {
+                  final selected = _dockedState == entry.key;
+                  return ChoiceChip(
+                    label: Text(entry.value),
+                    selected: selected,
+                    selectedColor: const Color(0xFFFEE2E2),
+                    checkmarkColor: const Color(0xFFB91C1C),
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: selected ? const Color(0xFF991B1B) : textSecondary,
+                    ),
+                    side: BorderSide(
+                      color: selected ? const Color(0xFFFCA5A5) : outlineColor,
+                    ),
+                    onSelected: _isUploading
+                        ? null
+                        : (_) {
+                            setState(() {
+                              _dockedState = entry.key;
+                              _resetTimerForStatus();
+                            });
+                          },
+                  );
+                }).toList(),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPhotoProofCard() {
+    final isOptional = _statusCode(_selectedStatus) == 'docked';
+
+    return _buildSectionCard(
+      title: isOptional ? "Photo Proof Optional" : "Photo Proof",
+      icon: Icons.add_a_photo_rounded,
+      toneColor: isOptional ? const Color(0xFFEF4444) : accentBlue,
+      trailing: isOptional
+          ? _buildStatusPill("OPTIONAL", const Color(0xFFEF4444))
+          : _buildStatusPill("REQUIRED", accentBlue),
+      children: [
+        GestureDetector(
+          onTap: _isUploading ? null : _pickProofImage,
+          child: Container(
+            height: 190,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: _finalCapturedImage == null
+                  ? const Color(0xFFF8FAFC)
+                  : Colors.black,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: _finalCapturedImage == null
+                    ? outlineColor
+                    : Colors.transparent,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(15),
+              child: _finalCapturedImage != null
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        kIsWeb
+                            ? Image.network(
+                                _finalCapturedImage!.path,
+                                fit: BoxFit.cover,
+                              )
+                            : Image.file(
+                                File(_finalCapturedImage!.path),
+                                fit: BoxFit.cover,
+                              ),
+                        Positioned(
+                          bottom: 12,
+                          right: 12,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black87,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.edit_rounded,
+                                  color: Colors.white,
+                                  size: 14,
+                                ),
+                                SizedBox(width: 6),
+                                Text(
+                                  "Change",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            color: accentBlue.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(
+                            Icons.camera_alt_rounded,
+                            size: 28,
+                            color: accentBlue,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          isOptional
+                              ? "Add a proof photo if available"
+                              : "Capture proof before saving",
+                          style: TextStyle(
+                            color: textPrimary,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "Camera opens first, gallery opens if needed",
+                          style: TextStyle(
+                            color: textSecondary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+    Color? toneColor,
+    Widget? trailing,
+  }) {
+    final color = toneColor ?? primaryDark;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: outlineColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '1. CHOOSE ACTION',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF64748B),
-              letterSpacing: 1.2,
-            ),
-          ),
-          const SizedBox(height: 12),
-          if (showDockedActions) ...[
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children:
-                  {
-                    'docked': 'Docked',
-                    'tba': 'Docked | TBA',
-                    'preparing': 'Docked | Preparing',
-                  }.entries.map((entry) {
-                    final selected =
-                        selectedStatus == 'docked' && _dockedState == entry.key;
-                    return ChoiceChip(
-                      label: Text(entry.value),
-                      selected: selected,
-                      onSelected: _isUploading
-                          ? null
-                          : (_) {
-                              setState(() {
-                                _overrideMode = false;
-                                _selectedStatus = 'Docked';
-                                _dockedState = entry.key;
-                                _resetTimerForStatus();
-                              });
-                            },
-                    );
-                  }).toList(),
-            ),
-            if (currentStatus == 'docked') ...[
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _isUploading
-                      ? null
-                      : () {
-                          setState(() {
-                            _overrideMode = false;
-                            _selectedStatus = 'Onboarding';
-                            _resetTimerForStatus();
-                          });
-                        },
-                  icon: const Icon(Icons.arrow_forward_rounded, size: 18),
-                  label: const Text('Continue to Onboarding'),
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w900,
+                    color: textPrimary,
+                  ),
                 ),
               ),
+              ?trailing,
             ],
-          ] else ...[
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _currentStatus,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: textSecondary,
-                    ),
-                  ),
-                ),
-                Icon(Icons.arrow_forward_rounded, color: accentBlue, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _selectedStatus,
-                    textAlign: TextAlign.end,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      color: accentBlue,
-                    ),
-                  ),
-                ),
-              ],
+          ),
+          const SizedBox(height: 14),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusBlock(
+    String label,
+    String value,
+    Color color, {
+    String? subBadge,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: color,
+              letterSpacing: 0.4,
             ),
-          ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                value,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 16,
+                  height: 1.1,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                ),
+              ),
+              if (subBadge != null)
+                _buildStatusPill(subBadge, const Color(0xFF64748B)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatusPill(String label, Color color, {Color? backgroundColor}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: backgroundColor ?? color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.20)),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRouteSummary(String statusLower) {
+    String summaryText = "";
+    if (statusLower == 'arrived' || statusLower == 'docked') {
+      summaryText =
+          "Arrived at ${_getPortName(_destinationPortId).toUpperCase()} from ${_getPortName(_originPortId).toUpperCase()}";
+    } else if (statusLower == 'departed') {
+      summaryText =
+          "Departing from ${_getPortName(_originPortId).toUpperCase()} to ${_getPortName(_destinationPortId).toUpperCase()}";
+    } else if (statusLower == 'onboarding') {
+      summaryText =
+          "Onboarding at ${_getPortName(_originPortId).toUpperCase()} bound for ${_getPortName(_destinationPortId).toUpperCase()}";
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: accentBlue.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: accentBlue.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.route_rounded, color: accentBlue, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              summaryText,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.25,
+                fontWeight: FontWeight.w800,
+                color: primaryDark,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1632,9 +1605,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     final status = _statusCode(_selectedStatus);
     final label = status == 'docked'
         ? 'DOCK PREPARATION AND FUELING TIME'
-        : status == 'onboarding'
-        ? 'TIME UNTIL DEPARTURE'
-        : 'ESTIMATED TRAVEL TIME';
+        : 'TIME UNTIL DEPARTURE';
     final expectedTime = DateTime.now().add(
       Duration(minutes: _timerMinutes.round()),
     );

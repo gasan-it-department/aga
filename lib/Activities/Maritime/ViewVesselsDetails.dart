@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../Maritime/MaritimeDataMapper.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 import 'package:gasan_port_tracker/Utility/VesselStatus.dart';
-import '../../Colors/IndicatorColors.dart'; // Added IndicatorColors
+import '../../Colors/IndicatorColors.dart';
 import '../../Dialogs/Bottomsheets/ViewFares.dart';
 import '../../Dialogs/Bottomsheets/ViewSchedules.dart';
 import '../../Utility/SearchBarView.dart';
@@ -23,7 +23,6 @@ class ViewVesselsDetails extends StatefulWidget {
 class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
   final supabase = Supabase.instance.client;
 
-  // Theme Colors
   final Color bgColor = const Color(0xFFF8FAFC);
   final Color primaryDark = const Color(0xFF0A2E5C);
   final Color textPrimary = const Color(0xFF1E293B);
@@ -34,14 +33,12 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
   List<Map<String, dynamic>> _vessels = [];
   List<Map<String, dynamic>> _availablePorts = [];
 
-  // --- SEARCH & FILTER VARIABLES ---
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounce;
   String _searchQuery = "";
   String? _selectedStatusFilter;
   String? _selectedPortFilter;
 
-  // --- PAGINATION VARIABLES ---
   final ScrollController _scrollController = ScrollController();
   bool _isLoading = true;
   bool _isFetchingMore = false;
@@ -93,8 +90,9 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
             .from('ports')
             .select('port_id, port_name')
             .order('port_name');
-        if (mounted)
+        if (mounted) {
           _availablePorts = List<Map<String, dynamic>>.from(portsResponse);
+        }
       }
 
       var query = supabase
@@ -102,8 +100,9 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
           .select('*, vessel_operations(*)')
           .eq('shipping_line_id', widget.shippingLine['shipping_line_id']);
 
-      if (_searchQuery.isNotEmpty)
+      if (_searchQuery.isNotEmpty) {
         query = query.ilike('vessel_name', '%$_searchQuery%');
+      }
       final vesselsResponse = await query
           .order('vessel_name')
           .range(_offset, _offset + _limit - 1);
@@ -116,11 +115,13 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
                 ?.toString();
             if (_selectedStatusFilter != null &&
                 status !=
-                    _selectedStatusFilter!.toLowerCase().replaceAll(' ', '_'))
+                    _selectedStatusFilter!.toLowerCase().replaceAll(' ', '_')) {
               return false;
+            }
             if (_selectedPortFilter != null &&
-                destination != _selectedPortFilter)
+                destination != _selectedPortFilter) {
               return false;
+            }
             return true;
           }).toList();
 
@@ -147,8 +148,9 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
           .from('vessels')
           .select('*, vessel_operations(*)')
           .eq('shipping_line_id', widget.shippingLine['shipping_line_id']);
-      if (_searchQuery.isNotEmpty)
+      if (_searchQuery.isNotEmpty) {
         query = query.ilike('vessel_name', '%$_searchQuery%');
+      }
       final vesselsResponse = await query
           .order('vessel_name')
           .range(_offset, _offset + _limit - 1);
@@ -168,11 +170,13 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
                         _selectedStatusFilter!.toLowerCase().replaceAll(
                           ' ',
                           '_',
-                        ))
+                        )) {
                   return false;
+                }
                 if (_selectedPortFilter != null &&
-                    destination != _selectedPortFilter)
+                    destination != _selectedPortFilter) {
                   return false;
+                }
                 return true;
               }).toList();
           _vessels.addAll(newVessels);
@@ -224,13 +228,6 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
     return "$h:$m $period";
   }
 
-  String _calculateStaticETA(int startEpoch, int? durationMinutes) {
-    int duration = (durationMinutes != null && durationMinutes > 0)
-        ? durationMinutes
-        : 170;
-    return _formatTime(startEpoch + (duration * 60 * 1000));
-  }
-
   void _openFaresBottomSheet() {
     final List<dynamic> fares = _parseData(
       widget.shippingLine['shipping_line_fares'],
@@ -257,7 +254,201 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
     );
   }
 
-  // --- Helper method to build the badge using IndicatorColors ---
+  int get _activeFilterCount {
+    int count = 0;
+    if (_selectedStatusFilter != null) count++;
+    if (_selectedPortFilter != null) count++;
+    return count;
+  }
+
+  void _clearFilters() {
+    setState(() {
+      _selectedStatusFilter = null;
+      _selectedPortFilter = null;
+    });
+    _fetchData(isRefresh: true);
+  }
+
+  void _openFilterSheet() {
+    String? tempPort = _selectedPortFilter;
+    String? tempStatus = _selectedStatusFilter;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: accentBlue.withValues(alpha: 0.10),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.filter_list_rounded,
+                            color: accentBlue,
+                            size: 20,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            "Filter Fleet",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                              color: textPrimary,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    _buildFilterDropdown(
+                      label: "Destination Port",
+                      value: tempPort,
+                      icon: Icons.location_on_rounded,
+                      items: [
+                        DropdownMenuItem<String>(
+                          value: null,
+                          child: Text(
+                            "All destinations",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: textPrimary,
+                            ),
+                          ),
+                        ),
+                        ..._availablePorts.map(
+                          (port) => DropdownMenuItem<String>(
+                            value: port['port_id'].toString(),
+                            child: Text(
+                              port['port_name'].toString(),
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: primaryDark,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) => setModalState(() {
+                        tempPort = value;
+                      }),
+                    ),
+                    const SizedBox(height: 14),
+                    _buildFilterDropdown(
+                      label: "Status",
+                      value: tempStatus,
+                      icon: Icons.flag_rounded,
+                      items: [
+                        DropdownMenuItem<String>(
+                          value: null,
+                          child: Text(
+                            "All statuses",
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: textPrimary,
+                            ),
+                          ),
+                        ),
+                        ...VesselStatus().statusList.map(
+                          (status) => DropdownMenuItem<String>(
+                            value: status,
+                            child: Text(
+                              status.toUpperCase(),
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: primaryDark,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) => setModalState(() {
+                        tempStatus = value;
+                      }),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              _clearFilters();
+                            },
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              foregroundColor: primaryDark,
+                              side: BorderSide(color: outlineColor),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: const Text(
+                              "Clear",
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              setState(() {
+                                _selectedPortFilter = tempPort;
+                                _selectedStatusFilter = tempStatus;
+                              });
+                              _fetchData(isRefresh: true);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              backgroundColor: accentBlue,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: const Text(
+                              "Apply",
+                              style: TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildDynamicStatusBadge(String status, StatusColors colors) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -275,6 +466,104 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
           letterSpacing: 0.5,
         ),
       ),
+    );
+  }
+
+  Widget _buildSmallBadge(String label, Color textColor, Color background) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: textColor.withValues(alpha: 0.12)),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: textColor,
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterDropdown({
+    required String label,
+    required String? value,
+    required IconData icon,
+    required List<DropdownMenuItem<String>> items,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: textSecondary,
+            letterSpacing: 0.6,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: outlineColor),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: value,
+              icon: Icon(icon, size: 18, color: textSecondary),
+              items: items,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoRow(
+    IconData icon,
+    String label,
+    String value,
+    Color color, {
+    Widget? trailing,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 17, color: color),
+        const SizedBox(width: 9),
+        Text(
+          "$label:",
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            color: textSecondary,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child:
+              trailing ??
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                ),
+              ),
+        ),
+      ],
     );
   }
 
@@ -300,6 +589,43 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
             ),
           ],
         ),
+        actions: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                tooltip: "Filter fleet",
+                onPressed: _openFilterSheet,
+                icon: const Icon(Icons.filter_list_rounded),
+              ),
+              if (_activeFilterCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: accentBlue,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _activeFilterCount.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Center(
         child: ConstrainedBox(
@@ -315,142 +641,6 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
                 focusedColor: accentBlue,
                 textSecondary: textSecondary,
                 outlineColor: outlineColor,
-              ),
-
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  children: [
-                    // DESTINATION FILTER
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: outlineColor),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            isExpanded: true,
-                            value: _selectedPortFilter,
-                            hint: Text(
-                              "Destination port",
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: textSecondary,
-                              ),
-                            ),
-                            icon: Icon(
-                              Icons.location_on_rounded,
-                              size: 16,
-                              color: textSecondary,
-                            ),
-                            items: [
-                              DropdownMenuItem(
-                                value: null,
-                                child: Text(
-                                  "Destination port",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: textPrimary,
-                                  ),
-                                ),
-                              ),
-                              ..._availablePorts.map(
-                                (port) => DropdownMenuItem(
-                                  value: port['port_id'].toString(),
-                                  child: Text(
-                                    port['port_name'].toString(),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: primaryDark,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            onChanged: (val) {
-                              setState(() => _selectedPortFilter = val);
-                              _fetchData(isRefresh: true);
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // STATUS FILTER
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: outlineColor),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            isExpanded: true,
-                            value: _selectedStatusFilter,
-                            hint: Text(
-                              "Status",
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: textSecondary,
-                              ),
-                            ),
-                            icon: Icon(
-                              Icons.filter_list_rounded,
-                              size: 16,
-                              color: textSecondary,
-                            ),
-                            items: [
-                              DropdownMenuItem(
-                                value: null,
-                                child: Text(
-                                  "All Status",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: textPrimary,
-                                  ),
-                                ),
-                              ),
-                              ...VesselStatus().statusList.map(
-                                (status) => DropdownMenuItem(
-                                  value: status,
-                                  child: Text(
-                                    status.toUpperCase(),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: primaryDark,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                            onChanged: (val) {
-                              setState(() => _selectedStatusFilter = val);
-                              _fetchData(isRefresh: true);
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ),
 
               const SizedBox(height: 12),
@@ -477,7 +667,7 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
                           itemCount:
                               _vessels.length + (_isFetchingMore ? 1 : 0),
                           itemBuilder: (context, index) {
-                            if (index == _vessels.length)
+                            if (index == _vessels.length) {
                               return Padding(
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 24,
@@ -488,13 +678,13 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
                                   ),
                                 ),
                               );
+                            }
                             return _buildVesselCard(_vessels[index]);
                           },
                         ),
                       ),
               ),
 
-              // --- BOTTOM ACTION BUTTONS ---
               Container(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                 decoration: BoxDecoration(
@@ -578,12 +768,10 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
     int departedEpoch = 0;
     int onboardingEpoch = 0;
     int onboardingDuration = 0;
-    int? travelDuration;
     String dockedState = 'docked';
 
     final dynamic statusData = vessel['vessel_status'];
     if (statusData is Map) {
-      // Added .trim() to ensure reliable string matching
       displayStatus = (statusData['status'] ?? "Docked").toString().trim();
       originName = _getPortName(statusData['origin']?.toString());
       destName = _getPortName(statusData['destination']?.toString());
@@ -596,18 +784,16 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
             statusData['onboarding_duration_minutes']?.toString() ?? "0",
           ) ??
           0;
-      travelDuration = int.tryParse(
-        statusData['travel_duration_minutes']?.toString() ?? "0",
-      );
       dockedState = statusData['docked_state']?.toString() ?? 'docked';
     } else {
       displayStatus = statusData?.toString().trim() ?? "Docked";
     }
 
     final String statusLower = displayStatus.toLowerCase();
-    final displayLabel = statusLower == 'docked' && dockedState != 'docked'
-        ? "Docked | ${dockedState == 'tba' ? 'TBA' : 'Preparing'}"
-        : displayStatus.replaceAll('_', ' ');
+    final displayLabel = displayStatus.replaceAll('_', ' ');
+    final dockedLabel = statusLower == 'docked' && dockedState != 'docked'
+        ? (dockedState == 'tba' ? 'TBA' : 'Preparing')
+        : null;
     bool showRoute =
         statusLower == 'departed' ||
         statusLower == 'arrived' ||
@@ -615,175 +801,156 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
         statusLower == 'standby';
     bool isOnboarding = statusLower == 'onboarding' && onboardingEpoch > 0;
 
-    // Fetch dynamic colors based on status
     final StatusColors statusColors = IndicatorColors.getColors(displayStatus);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: outlineColor),
         boxShadow: [
           BoxShadow(
-            color: primaryDark.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
+            color: primaryDark.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
-      // --- FIXED: Use Material to enforce background color painting ---
       child: Material(
-        color: statusColors.background, // Pastel status background
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: statusColors.border), // Status border
-        ),
+        color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(18),
           onTap: () => showDialog(
             context: context,
             builder: (context) =>
                 VesselTracking(vessel: vessel, availablePorts: _availablePorts),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.all(15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 1. LEADING ICON
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: statusColors.background,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: statusColors.border),
+                      ),
+                      child: Icon(
+                        Icons.directions_boat_filled_rounded,
+                        size: 22,
+                        color: statusColors.text,
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vessel['vessel_name'] ?? "Unknown",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16,
+                              color: textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            vessel['vessel_type'] ?? 'Passenger Ship',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: textSecondary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _buildDynamicStatusBadge(
+                                displayLabel,
+                                statusColors,
+                              ),
+                              if (dockedLabel != null)
+                                _buildSmallBadge(
+                                  dockedLabel,
+                                  const Color(0xFF475569),
+                                  const Color(0xFFF1F5F9),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: statusColors.text.withValues(
-                      alpha: 0.1,
-                    ), // Soft wash of the text color
-                    shape: BoxShape.circle,
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: outlineColor),
                   ),
-                  child: Icon(
-                    Icons.directions_boat_filled_rounded,
-                    size: 20,
-                    color: statusColors.text,
-                  ),
-                ),
-                const SizedBox(width: 16),
-
-                // 2. MAIN CONTENT (Header + Details)
-                Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // HEADER ROW
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  vessel['vessel_name'] ?? "Unknown",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 16,
-                                    color: textPrimary,
-                                  ),
-                                ),
-                                Text(
-                                  vessel['vessel_type'] ?? 'Passenger Ship',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: textSecondary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          _buildDynamicStatusBadge(displayLabel, statusColors),
-                        ],
-                      ),
-
-                      // DYNAMIC DETAILS BELOW
-                      if (showRoute && originName.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Text(
+                      if (showRoute && originName.isNotEmpty)
+                        _buildInfoRow(
+                          Icons.route_rounded,
+                          "Route",
                           destName.isNotEmpty
-                              ? "$originName  ➔  $destName"
+                              ? "$originName to $destName"
                               : originName,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: statusColors.text,
-                            fontWeight: FontWeight.w900,
-                          ),
+                          statusColors.text,
+                        )
+                      else
+                        _buildInfoRow(
+                          Icons.anchor_rounded,
+                          "Port",
+                          originName.isNotEmpty ? originName : "-:-",
+                          statusColors.text,
                         ),
-                      ],
                       if (statusLower == 'docked' && dockedState == 'tba') ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          "SELECTED TO DEPART",
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: statusColors.text,
-                            fontWeight: FontWeight.w900,
-                          ),
+                        const SizedBox(height: 10),
+                        _buildInfoRow(
+                          Icons.flag_rounded,
+                          "Departure",
+                          "Selected to depart",
+                          statusColors.text,
                         ),
                       ],
-
                       if (statusLower == 'departed' && departedEpoch > 0) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors
-                                .white, // Pops out perfectly against the pastel background
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: statusColors.border),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.event_available_rounded,
-                                size: 12,
-                                color: statusColors.text,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                "Est. Arrival: ${_calculateStaticETA(departedEpoch, travelDuration)}",
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: statusColors.text,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ],
-                          ),
+                        const SizedBox(height: 10),
+                        _buildInfoRow(
+                          Icons.logout_rounded,
+                          "Departed",
+                          _formatTime(departedEpoch),
+                          statusColors.text,
                         ),
                       ],
-
                       if (isOnboarding) ...[
-                        const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors
-                                  .white, // Pops out beautifully against the yellow background
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: statusColors.border),
-                            ),
-                            child: LiveOnboardingCounter(
-                              startTimeEpoch: onboardingEpoch,
-                              durationMinutes: onboardingDuration,
-                              colorTheme: statusColors.text,
-                            ),
+                        const SizedBox(height: 10),
+                        _buildInfoRow(
+                          Icons.timer_outlined,
+                          "Boarding",
+                          "",
+                          statusColors.text,
+                          trailing: LiveOnboardingCounter(
+                            startTimeEpoch: onboardingEpoch,
+                            durationMinutes: onboardingDuration,
+                            colorTheme: statusColors.text,
                           ),
                         ),
                       ],
@@ -836,7 +1003,7 @@ class _ViewVesselsDetailsState extends State<ViewVesselsDetails> {
 class LiveOnboardingCounter extends StatefulWidget {
   final int startTimeEpoch;
   final int durationMinutes;
-  final Color colorTheme; // Added to match the parent status text color
+  final Color colorTheme;
   const LiveOnboardingCounter({
     super.key,
     required this.startTimeEpoch,
@@ -871,10 +1038,13 @@ class _LiveOnboardingCounterState extends State<LiveOnboardingCounter> {
         (widget.startTimeEpoch + (widget.durationMinutes * 60 * 1000)) -
         DateTime.now().millisecondsSinceEpoch;
     if (diff > 0) {
-      if (mounted) setState(() => _remainingSeconds = diff ~/ 1000);
+      if (mounted) {
+        setState(() => _remainingSeconds = diff ~/ 1000);
+      }
     } else {
-      if (_remainingSeconds != 0 && mounted)
+      if (_remainingSeconds != 0 && mounted) {
         setState(() => _remainingSeconds = 0);
+      }
       _timer?.cancel();
     }
   }
@@ -882,9 +1052,7 @@ class _LiveOnboardingCounterState extends State<LiveOnboardingCounter> {
   @override
   Widget build(BuildContext context) {
     final bool isOver = _remainingSeconds <= 0;
-    final Color textColor = isOver
-        ? Colors.redAccent
-        : widget.colorTheme; // Use dynamic color
+    final Color textColor = isOver ? Colors.redAccent : widget.colorTheme;
     int m = (_remainingSeconds % 3600) ~/ 60;
     int s = _remainingSeconds % 60;
     return Row(
