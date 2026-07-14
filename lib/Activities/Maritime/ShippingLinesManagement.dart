@@ -37,6 +37,10 @@ class _ShippingLinesManagementState extends State<ShippingLinesManagement> {
   List<Map<String, dynamic>> _shippingLines = [];
   List<Map<String, dynamic>> _ports = [];
   bool _isLoading = true;
+  bool _isLoadingPassengerLevel = true;
+  String? _assignedPortId;
+  String? _assignedPortName;
+  String? _passengerLevel;
 
   // --- SEARCH & PAGINATION VARIABLES ---
   final TextEditingController _searchController = TextEditingController();
@@ -69,6 +73,81 @@ class _ShippingLinesManagementState extends State<ShippingLinesManagement> {
 
   Future<void> _initPrefs() async {
     _preferences = await SharedPreferences.getInstance();
+    _assignedPortId = _preferences?.getString('assigned_port_id');
+    _assignedPortName = _preferences?.getString('assigned_port');
+    await _fetchPassengerLevel();
+  }
+
+  Future<void> _fetchPassengerLevel() async {
+    if (mounted) setState(() => _isLoadingPassengerLevel = true);
+    try {
+      if (_ports.isEmpty) await _fetchPorts();
+
+      final assignedPorts = _findAssignedPorts(_ports);
+      if (assignedPorts.length == 1) {
+        _assignedPortId = assignedPorts.first['port_id']?.toString();
+        _assignedPortName = assignedPorts.first['port_name']?.toString();
+      }
+
+      final portId = (_assignedPortId ?? '').trim();
+      if (portId.isEmpty) {
+        if (mounted) setState(() => _isLoadingPassengerLevel = false);
+        return;
+      }
+
+      final status = await supabase
+          .from('maritime_dashboard_status')
+          .select('passenger_level')
+          .eq('dashboard_status_scope', 'port:$portId')
+          .maybeSingle();
+
+      if (mounted) {
+        setState(() {
+          _passengerLevel = status?['passenger_level']?.toString() ?? 'medium';
+          _isLoadingPassengerLevel = false;
+        });
+      }
+    } catch (error) {
+      debugPrint('Error fetching shipping line passenger level: $error');
+      if (mounted) setState(() => _isLoadingPassengerLevel = false);
+    }
+  }
+
+  List<Map<String, dynamic>> _findAssignedPorts(
+    List<Map<String, dynamic>> ports,
+  ) {
+    final assignedPortId = (_assignedPortId ?? '').trim();
+    final assignedPortName = (_assignedPortName ?? '').trim();
+
+    if (assignedPortId.isNotEmpty) {
+      final byId = ports
+          .where((port) => port['port_id']?.toString().trim() == assignedPortId)
+          .toList();
+      if (byId.isNotEmpty) return byId;
+    }
+
+    if (assignedPortName.isNotEmpty) {
+      final normalizedAssigned = _normalizePortName(assignedPortName);
+      final byName = ports.where((port) {
+        final normalizedPort = _normalizePortName(
+          port['port_name']?.toString() ?? '',
+        );
+        return normalizedPort == normalizedAssigned ||
+            normalizedPort.contains(normalizedAssigned) ||
+            normalizedAssigned.contains(normalizedPort);
+      }).toList();
+      if (byName.isNotEmpty) return byName;
+    }
+
+    return [];
+  }
+
+  String _normalizePortName(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 
   @override
@@ -103,6 +182,7 @@ class _ShippingLinesManagementState extends State<ShippingLinesManagement> {
 
     try {
       if (_ports.isEmpty) await _fetchPorts();
+      if (isRefresh) await _fetchPassengerLevel();
       final portNames = {
         for (final port in _ports)
           port['port_id'].toString(): port['port_name'].toString(),
@@ -269,46 +349,181 @@ class _ShippingLinesManagementState extends State<ShippingLinesManagement> {
                       )
                     : _shippingLines.isEmpty
                     ? _buildEmptyState()
-                    : RefreshIndicator(
-                        color: primaryColor,
-                        backgroundColor: Colors.white,
-                        onRefresh: () => _fetchShippingLines(isRefresh: true),
-                        child: ListView.builder(
-                          controller: _scrollController,
-                          physics: const AlwaysScrollableScrollPhysics(
-                            parent: BouncingScrollPhysics(),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16.0,
-                            vertical: 8.0,
-                          ),
-                          itemCount:
-                              _shippingLines.length + (_isLoadingMore ? 1 : 0),
-                          itemBuilder: (context, index) {
-                            if (index == _shippingLines.length) {
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 24.0,
-                                ),
-                                child: Center(
-                                  child: CircularProgressIndicator(
-                                    color: accentColor,
-                                  ),
-                                ),
-                              );
-                            }
-
-                            final line = _shippingLines[index];
-                            return _buildLineCard(line);
-                          },
-                        ),
-                      ),
+                    : _buildShippingLineList(),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildPassengerLevelCard() {
+    final level = _isLoadingPassengerLevel
+        ? 'checking'
+        : (_passengerLevel ?? 'not_available');
+    final levelColor = _passengerLevelColor(level);
+    final assignedPort = (_assignedPortName ?? '').trim();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: outlineColor),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: levelColor.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.groups_2_rounded, color: levelColor, size: 22),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Passenger Level",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  assignedPort.isEmpty
+                      ? "Assigned port not found"
+                      : assignedPort,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: textSecondary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: levelColor,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: levelColor),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_isLoadingPassengerLevel) ...[
+                  SizedBox(
+                    height: 10,
+                    width: 10,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.6,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  _passengerLevelText(level).toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPassengerLevelListHeader() {
+    return SliverToBoxAdapter(child: _buildPassengerLevelCard());
+  }
+
+  Widget _buildShippingLineList() {
+    return RefreshIndicator(
+      color: primaryColor,
+      backgroundColor: Colors.white,
+      onRefresh: () => _fetchShippingLines(isRefresh: true),
+      child: CustomScrollView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        slivers: [
+          _buildPassengerLevelListHeader(),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate((context, index) {
+                if (index == _shippingLines.length) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24.0),
+                    child: Center(
+                      child: CircularProgressIndicator(color: accentColor),
+                    ),
+                  );
+                }
+
+                final line = _shippingLines[index];
+                return _buildLineCard(line);
+              }, childCount: _shippingLines.length + (_isLoadingMore ? 1 : 0)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _passengerLevelText(String value) {
+    switch (value) {
+      case 'light':
+        return 'Light';
+      case 'medium':
+        return 'Medium';
+      case 'heavy':
+        return 'Heavy';
+      case 'very_heavy':
+        return 'Very Heavy';
+      case 'checking':
+        return 'Checking';
+      case 'not_available':
+      default:
+        return 'Not Available';
+    }
+  }
+
+  Color _passengerLevelColor(String value) {
+    return switch (value) {
+      'light' => const Color(0xFF16A34A),
+      'medium' => const Color(0xFF2563EB),
+      'heavy' => const Color(0xFFD97706),
+      'very_heavy' => const Color(0xFFDC2626),
+      'checking' => primaryColor,
+      _ => textSecondary,
+    };
   }
 
   Widget _buildLineCard(Map<String, dynamic> line) {

@@ -63,7 +63,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   final TextEditingController _statusNoteController = TextEditingController();
   final TextEditingController _timerMinutesController = TextEditingController();
   String _weatherCondition = 'moderate';
-  String _passengerLevel = 'medium';
   String _currentDockedState = 'docked';
   String _dockedState = 'docked';
   double _timerMinutes = 45;
@@ -82,13 +81,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     _currentStatus = _statusLabel(widget.currentStatus ?? 'docked');
     _currentDockedState = widget.dockedState ?? 'docked';
     _dockedState = _currentDockedState;
-    final month = DateTime.now().month;
-    if (month == 11 || month == 12) {
-      _passengerLevel = 'heavy';
-    } else if (month == 9) {
-      _passengerLevel = 'medium';
-    }
-
     _determineNextStatus();
     _resetTimerForStatus();
 
@@ -230,15 +222,9 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   }
 
   void _loadSavedStatusDefaults() {
-    final savedPassenger = _preferences?.getString('maritime_passenger_level');
     final savedTimer = _preferences?.getInt(_timerPreferenceKey());
-    final allowedPassengerLevels = {'light', 'medium', 'heavy', 'very_heavy'};
     if (!mounted) return;
     setState(() {
-      if (savedPassenger != null &&
-          allowedPassengerLevels.contains(savedPassenger)) {
-        _passengerLevel = savedPassenger;
-      }
       if (savedTimer != null) {
         final settings = _timerSettings();
         final adjusted = savedTimer.toDouble().clamp(
@@ -252,7 +238,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   }
 
   Future<void> _saveStatusDefaults() async {
-    await _preferences?.setString('maritime_passenger_level', _passengerLevel);
     final status = _statusCode(_selectedStatus);
     final shouldSaveTimer =
         (status == 'docked' && _dockedState == 'preparing') ||
@@ -569,8 +554,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         'weather_condition': statusLower == 'departed'
             ? _weatherCondition
             : null,
-        'passenger_level': _passengerLevel,
-        'passenger_level_source': 'manual',
         'proof_image_path': fileName,
         'proof_uploaded_at': fileName == null ? null : now.toIso8601String(),
         'proof_uploaded_by': fileName == null ? null : userId,
@@ -617,8 +600,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
         'weather_condition': statusLower == 'departed'
             ? _weatherCondition
             : null,
-        'passenger_level': _passengerLevel,
-        'passenger_level_source': 'manual',
         'proof_image_path': fileName,
         'proof_uploaded_at': fileName == null ? null : now.toIso8601String(),
         'proof_uploaded_by': fileName == null ? null : userId,
@@ -689,7 +670,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
           constraints: BoxConstraints(maxWidth: Utility().getMaxScreenSize()),
           child: SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -731,23 +712,6 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                       ),
                       const SizedBox(height: 18),
                     ],
-                    _buildChoiceDropdown(
-                      "PASSENGER LEVEL",
-                      _passengerLevel,
-                      const {
-                        'light': 'Light',
-                        'medium': 'Medium',
-                        'heavy': 'Heavy',
-                        'very_heavy': 'Very Heavy',
-                      },
-                      (value) {
-                        setState(() => _passengerLevel = value);
-                        _preferences?.setString(
-                          'maritime_passenger_level',
-                          value,
-                        );
-                      },
-                    ),
                     if (statusLower == 'no_schedule') ...[
                       const SizedBox(height: 18),
                       _buildTextInput(
@@ -820,41 +784,66 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  height: 56,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _overrideMode
-                          ? const Color(0xFFEF4444)
-                          : accentBlue,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 0,
-                    ),
-                    onPressed: _isUploading ? null : _submitStatusUpdate,
-                    child: _isUploading
-                        ? const SizedBox(
-                            height: 24,
-                            width: 24,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 3,
-                            ),
-                          )
-                        : Text(
-                            _submitButtonLabel(),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 20),
               ],
+            ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: outlineColor)),
+            boxShadow: [
+              BoxShadow(
+                color: primaryDark.withValues(alpha: 0.08),
+                blurRadius: 18,
+                offset: const Offset(0, -8),
+              ),
+            ],
+          ),
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: Utility().getMaxScreenSize(),
+              ),
+              child: SizedBox(
+                height: 56,
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _overrideMode
+                        ? const Color(0xFFEF4444)
+                        : accentBlue,
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: const Color(0xFF94A3B8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    elevation: 0,
+                  ),
+                  onPressed: _isUploading ? null : _submitStatusUpdate,
+                  child: _isUploading
+                      ? const SizedBox(
+                          height: 24,
+                          width: 24,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 3,
+                          ),
+                        )
+                      : Text(
+                          _submitButtonLabel(),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                ),
+              ),
             ),
           ),
         ),

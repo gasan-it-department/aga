@@ -155,7 +155,6 @@ class _VesselTrackingState extends State<VesselTracking> {
     int departed = 0;
     int arrival = 0;
     int onboardingTime = 0;
-    String passengerLevel = "medium";
     String noScheduleReason = "";
     String dockedState = "docked";
     int lastConfirmedAt = 0;
@@ -172,7 +171,6 @@ class _VesselTrackingState extends State<VesselTracking> {
       onboardingTime =
           int.tryParse(statusData['onboarding_time']?.toString() ?? "0") ?? 0;
       proofUrl = statusData['image_proof']?.toString();
-      passengerLevel = statusData['passenger_level']?.toString() ?? "medium";
       noScheduleReason = statusData['no_schedule_reason']?.toString() ?? "";
       dockedState = statusData['docked_state']?.toString() ?? "docked";
       lastConfirmedAt =
@@ -279,16 +277,6 @@ class _VesselTrackingState extends State<VesselTracking> {
                             Icons.location_on_rounded,
                             "Destination",
                             destName,
-                            textPrimary,
-                          ),
-                          _buildDetailTile(
-                            Icons.groups_rounded,
-                            "Passenger Level",
-                            statusLower == 'docked'
-                                ? "-:-"
-                                : passengerLevel
-                                      .replaceAll('_', ' ')
-                                      .toUpperCase(),
                             textPrimary,
                           ),
                           if (noScheduleReason.isNotEmpty)

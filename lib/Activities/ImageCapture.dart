@@ -29,17 +29,15 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
   void initState() {
     super.initState();
     if (!kIsWeb) {
-    SystemChrome.setPreferredOrientations([
-    DeviceOrientation.landscapeRight,
-    DeviceOrientation.landscapeLeft,
-    ]);
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
     }
     _initCamera();
   }
 
   @override
   void dispose() {
-    // 2. Release the landscape lock when leaving this screen
     if (!kIsWeb) {
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
@@ -112,9 +110,9 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
         );
 
         await _cameraController!.initialize();
-
-        // REMOVED: lockCaptureOrientation(DeviceOrientation.landscapeRight)
-        // The camera package will now automatically sync with the SystemChrome UI orientation!
+        await _cameraController!.lockCaptureOrientation(
+          DeviceOrientation.portraitUp,
+        );
 
         if (mounted) setState(() => _isCameraInitialized = true);
       } else {

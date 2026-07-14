@@ -1,11 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 
-import '../../Dialogs/Bottomsheets/ViewFares.dart';
-import '../../Dialogs/Bottomsheets/ViewSchedules.dart';
 import 'ViewVesselsDetails.dart';
 import '../../Maritime/MaritimeDataMapper.dart';
 
@@ -29,6 +25,8 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
 
   bool _isLoading = true;
   List<Map<String, dynamic>> _shippingLines = [];
+  List<Map<String, dynamic>> _ports = [];
+  Map<String, String> _passengerLevelsByPort = {};
 
   @override
   void initState() {
@@ -53,9 +51,22 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
         for (final port in ports)
           port['port_id'].toString(): port['port_name'].toString(),
       };
+      final passengerRows = await supabase
+          .from('maritime_dashboard_status')
+          .select('dashboard_status_scope, passenger_level')
+          .like('dashboard_status_scope', 'port:%');
+      final passengerLevels = <String, String>{};
+      for (final row in List<Map<String, dynamic>>.from(passengerRows)) {
+        final scope = row['dashboard_status_scope']?.toString() ?? '';
+        if (!scope.startsWith('port:')) continue;
+        passengerLevels[scope.substring(5)] =
+            row['passenger_level']?.toString() ?? 'not_available';
+      }
 
       if (mounted) {
         setState(() {
+          _ports = ports;
+          _passengerLevelsByPort = passengerLevels;
           _shippingLines = List<Map<String, dynamic>>.from(responses[1] as List)
               .map(
                 (line) =>
@@ -69,217 +80,6 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
       debugPrint("Error fetching shipping lines: $e");
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  List<dynamic> _parseData(dynamic data) {
-    if (data == null) return [];
-    if (data is List) return data;
-    if (data is String) {
-      try {
-        final decoded = jsonDecode(data);
-        return decoded is List ? decoded : [decoded];
-      } catch (_) {
-        return [];
-      }
-    }
-    return [data];
-  }
-
-  void _showShippingLineOptions(Map<String, dynamic> line) {
-    final String lineName =
-        line['shipping_line_name']?.toString() ?? 'Shipping Line';
-    final int fleetSize = (line['vessels'] as List?)?.length ?? 0;
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) {
-        return SafeArea(
-          child: Container(
-            margin: const EdgeInsets.all(12),
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.12),
-                  blurRadius: 24,
-                  offset: const Offset(0, 12),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 42,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: outlineColor,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: primaryDark.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
-                        Icons.directions_boat_filled_rounded,
-                        color: primaryDark,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            lineName,
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w900,
-                              color: primaryDark,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            "$fleetSize Vessel${fleetSize <= 1 ? '' : 's'} available",
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: textSecondary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                _buildOptionTile(
-                  icon: Icons.payments_rounded,
-                  title: 'View Rates',
-                  subtitle: 'Passenger and cargo fare information',
-                  color: const Color(0xFF059669),
-                  onTap: () {
-                    Navigator.pop(context);
-                    ViewFares.showBottomSheet(
-                      context: context,
-                      shippingLineName: lineName,
-                      fares: _parseData(line['shipping_line_fares']),
-                    );
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildOptionTile(
-                  icon: Icons.event_available_rounded,
-                  title: 'View Schedules',
-                  subtitle: 'Routes, departure times and trip status',
-                  color: const Color(0xFF2563EB),
-                  onTap: () {
-                    Navigator.pop(context);
-                    ViewSchedules.showBottomSheet(
-                      context: context,
-                      shippingLineName: lineName,
-                      schedules: _parseData(line['shipping_line_schedules']),
-                    );
-                  },
-                ),
-                const SizedBox(height: 10),
-                _buildOptionTile(
-                  icon: Icons.directions_boat_rounded,
-                  title: 'View Vessels',
-                  subtitle: 'Open vessel list and live vessel details',
-                  color: const Color(0xFF7C3AED),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            ViewVesselsDetails(shippingLine: line),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildOptionTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: color.withValues(alpha: 0.06),
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: color, size: 22),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        color: textSecondary,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: color),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   @override
@@ -314,15 +114,385 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                     physics: const AlwaysScrollableScrollPhysics(
                       parent: BouncingScrollPhysics(),
                     ),
-                    itemCount: _shippingLines.length,
+                    itemCount: _shippingLines.length + 1,
                     itemBuilder: (context, index) {
-                      return _buildShippingLineCard(_shippingLines[index]);
+                      if (index == 0) return _buildPassengerLevelCard();
+                      final line = _shippingLines[index - 1];
+                      return _buildShippingLineCard(line);
                     },
                   ),
                 ),
         ),
       ),
     );
+  }
+
+  Widget _buildPassengerLevelCard() {
+    final visiblePorts = _ports.where((port) {
+      final id = port['port_id']?.toString() ?? '';
+      return id.isNotEmpty && _passengerLevelsByPort.containsKey(id);
+    }).toList();
+
+    if (visiblePorts.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: outlineColor.withValues(alpha: 0.7)),
+        boxShadow: [
+          BoxShadow(
+            color: primaryDark.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: accentBlue.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  Icons.groups_2_rounded,
+                  color: accentBlue,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Passenger Level",
+                      style: TextStyle(
+                        color: primaryDark,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "Current port passenger condition",
+                      style: TextStyle(
+                        color: textSecondary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Passenger level info',
+                onPressed: _showPassengerLevelInfoDialog,
+                icon: Icon(
+                  Icons.info_outline_rounded,
+                  color: textSecondary,
+                  size: 22,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: visiblePorts.map((port) {
+              final portId = port['port_id']?.toString() ?? '';
+              final level = _passengerLevelsByPort[portId] ?? 'not_available';
+              final color = _passengerLevelColor(level);
+              return Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: color.withValues(alpha: 0.22)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Text(
+                      port['port_name']?.toString() ?? 'Port',
+                      style: TextStyle(
+                        color: textPrimary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _passengerLevelText(level).toUpperCase(),
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPassengerLevelInfoDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20),
+          backgroundColor: Colors.transparent,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 430),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: primaryDark.withValues(alpha: 0.18),
+                    blurRadius: 28,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 16, 18),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            primaryDark,
+                            const Color(0xFF155EAC),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.18),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.groups_2_rounded,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Passenger Level Guide',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Use these indicators to estimate how busy each port is.',
+                                  style: TextStyle(
+                                    color: Color(0xFFDCEBFF),
+                                    fontSize: 12,
+                                    height: 1.3,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close_rounded),
+                            color: Colors.white,
+                            tooltip: 'Close',
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildPassengerLevelInfoRow(
+                            'light',
+                            'Light',
+                            'Few passengers at the port.',
+                          ),
+                          _buildPassengerLevelInfoRow(
+                            'medium',
+                            'Medium',
+                            'Normal passenger volume.',
+                          ),
+                          _buildPassengerLevelInfoRow(
+                            'heavy',
+                            'Heavy',
+                            'Many passengers are waiting.',
+                          ),
+                          _buildPassengerLevelInfoRow(
+                            'very_heavy',
+                            'Very Heavy',
+                            'Expect crowding and possible longer waiting time.',
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryDark,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: const Text(
+                            'Got it',
+                            style: TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPassengerLevelInfoRow(
+    String value,
+    String title,
+    String description,
+  ) {
+    final color = _passengerLevelColor(value);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(Icons.circle_rounded, color: color, size: 13),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: 12,
+                    height: 1.35,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _passengerLevelText(String value) {
+    switch (value) {
+      case 'light':
+        return 'Light';
+      case 'medium':
+        return 'Medium';
+      case 'heavy':
+        return 'Heavy';
+      case 'very_heavy':
+        return 'Very Heavy';
+      default:
+        return 'Not Available';
+    }
+  }
+
+  Color _passengerLevelColor(String value) {
+    return switch (value) {
+      'light' => const Color(0xFF16A34A),
+      'medium' => const Color(0xFF2563EB),
+      'heavy' => const Color(0xFFD97706),
+      'very_heavy' => const Color(0xFFDC2626),
+      _ => textSecondary,
+    };
   }
 
   Widget _buildShippingLineCard(Map<String, dynamic> line) {
@@ -346,7 +516,14 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: () => _showShippingLineOptions(line),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ViewVesselsDetails(shippingLine: line),
+              ),
+            );
+          },
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Row(

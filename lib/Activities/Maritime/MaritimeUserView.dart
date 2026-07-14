@@ -538,7 +538,6 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
     int arrival = 0;
     int onboardingTime = 0;
     int estimatedLatest = 0;
-    String passengerLevel = "medium";
     String noScheduleReason = "";
     String dockedState = "docked";
 
@@ -556,7 +555,6 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
             statusData['estimated_transition_latest']?.toString() ?? "0",
           ) ??
           0;
-      passengerLevel = statusData['passenger_level']?.toString() ?? "medium";
       noScheduleReason = statusData['no_schedule_reason']?.toString() ?? "";
       dockedState = statusData['docked_state']?.toString() ?? "docked";
     } else {
@@ -600,12 +598,6 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
         'no_schedule') {
       timeDetail = noScheduleReason.isEmpty ? "Unavailable" : noScheduleReason;
     }
-    final passengerLabel = displayStatus.toLowerCase() == 'docked'
-        ? "-:-"
-        : passengerLevel.replaceAll('_', ' ').toUpperCase();
-    timeDetail = timeDetail.isEmpty
-        ? passengerLabel
-        : "$passengerLabel · $timeDetail";
     final displayLabel =
         displayStatus.toLowerCase() == 'docked' && dockedState != 'docked'
         ? "Docked | ${dockedState == 'tba' ? 'TBA' : 'Preparing'}"

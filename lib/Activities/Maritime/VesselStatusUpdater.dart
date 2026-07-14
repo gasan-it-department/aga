@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gasan_port_tracker/Dialogs/ClassicDialog.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gasan_port_tracker/Colors/IndicatorColors.dart';
 import 'SubActivities/UpdateVesselStatus.dart';
@@ -35,6 +36,8 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   String _searchQuery = '';
   String? _selectedShippingLineId;
   String? _selectedPortId;
+  String? _assignedPortId;
+  String? _assignedPortName;
 
   Timer? _debounce;
   Timer? _countdownTimer;
@@ -50,9 +53,19 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   }
 
   Future<void> _initializeData() async {
+    await _loadAssignedPort();
     await _fetchPorts();
     await _fetchShippingLines();
     _fetchVessels();
+  }
+
+  Future<void> _loadAssignedPort() async {
+    final prefs = await SharedPreferences.getInstance();
+    _assignedPortId = prefs.getString('assigned_port_id');
+    _assignedPortName = prefs.getString('assigned_port');
+    if ((_assignedPortId ?? '').trim().isNotEmpty) {
+      _selectedPortId = _assignedPortId!.trim();
+    }
   }
 
   @override
@@ -76,13 +89,15 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
 
   Future<void> _fetchPorts() async {
     try {
-      final response = await supabase
-          .from('ports')
-          .select('port_id, port_name')
-          .order('port_name');
+      final response = await _fetchAssignedPorts();
       if (mounted) {
         setState(() {
           _portsList = List<Map<String, dynamic>>.from(response);
+          if (_portsList.length == 1) {
+            _selectedPortId = _portsList.first['port_id']?.toString();
+            _assignedPortId = _selectedPortId;
+            _assignedPortName = _portsList.first['port_name']?.toString();
+          }
           for (var port in _portsList) {
             _portsMap[port['port_id'].toString()] = port['port_name']
                 .toString();
@@ -92,6 +107,50 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
     } catch (e) {
       debugPrint("Error fetching ports: $e");
     }
+  }
+
+  Future<List<dynamic>> _fetchAssignedPorts() async {
+    final assignedPortId = (_assignedPortId ?? '').trim();
+    final assignedPortName = (_assignedPortName ?? '').trim();
+    final allPorts = await supabase
+        .from('ports')
+        .select('port_id, port_name')
+        .order('port_name');
+
+    if (assignedPortId.isNotEmpty) {
+      final byId = allPorts
+          .where((port) => port['port_id']?.toString().trim() == assignedPortId)
+          .toList();
+      if (byId.isNotEmpty) return byId;
+    }
+
+    if (assignedPortName.isNotEmpty) {
+      final normalizedAssigned = _normalizePortName(assignedPortName);
+      final byName = allPorts.where((port) {
+        final normalizedPort = _normalizePortName(
+          port['port_name']?.toString() ?? '',
+        );
+        return normalizedPort == normalizedAssigned ||
+            normalizedPort.contains(normalizedAssigned) ||
+            normalizedAssigned.contains(normalizedPort);
+      }).toList();
+      if (byName.isNotEmpty) return byName;
+    }
+
+    if (assignedPortId.isNotEmpty || assignedPortName.isNotEmpty) return [];
+
+    return await supabase
+        .from('ports')
+        .select('port_id, port_name')
+        .order('port_name');
+  }
+
+  String _normalizePortName(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 
   Future<void> _fetchShippingLines() async {
@@ -123,23 +182,28 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
             '*, shipping_lines(shipping_line_name), vessel_operations(*)',
           );
 
-      if (_searchQuery.isNotEmpty)
+      if (_searchQuery.isNotEmpty) {
         query = query.ilike('vessel_name', '%$_searchQuery%');
-      if (_selectedShippingLineId != null)
+      }
+      if (_selectedShippingLineId != null) {
         query = query.eq('shipping_line_id', _selectedShippingLineId!);
+      }
       final response = await query.order('vessel_name', ascending: true);
       final normalized = MaritimeDataMapper.normalizeVessels(
         supabase,
         response,
       );
-      final filtered = _selectedPortId == null
+      final activePortFilter = (_assignedPortId ?? '').trim().isNotEmpty
+          ? _assignedPortId!.trim()
+          : _selectedPortId;
+      final filtered = activePortFilter == null
           ? normalized
           : normalized.where((vessel) {
               final status = vessel['vessel_status'];
               return vessel['vessel_current_port']?.toString() ==
-                      _selectedPortId ||
-                  status?['origin']?.toString() == _selectedPortId ||
-                  status?['destination']?.toString() == _selectedPortId;
+                      activePortFilter ||
+                  status?['origin']?.toString() == activePortFilter ||
+                  status?['destination']?.toString() == activePortFilter;
             }).toList();
 
       if (mounted) {
@@ -170,6 +234,7 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   }
 
   void _onPortFilterChanged(String? newValue) {
+    if ((_assignedPortId ?? '').trim().isNotEmpty) return;
     setState(() => _selectedPortId = newValue);
     _fetchVessels();
   }
@@ -422,17 +487,18 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
                                   color: textSecondary,
                                 ),
                                 items: [
-                                  DropdownMenuItem(
-                                    value: null,
-                                    child: Text(
-                                      "All Ports",
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w700,
-                                        color: primaryDark,
+                                  if (!_isAssignedPortLocked)
+                                    DropdownMenuItem(
+                                      value: null,
+                                      child: Text(
+                                        "All Ports",
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: primaryDark,
+                                        ),
                                       ),
                                     ),
-                                  ),
                                   ..._portsList.map(
                                     (port) => DropdownMenuItem(
                                       value: port['port_id'].toString(),
@@ -448,7 +514,9 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
                                     ),
                                   ),
                                 ],
-                                onChanged: _onPortFilterChanged,
+                                onChanged: _isAssignedPortLocked
+                                    ? null
+                                    : _onPortFilterChanged,
                               ),
                             ),
                           ),
@@ -487,6 +555,10 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
       ),
     );
   }
+
+  bool get _isAssignedPortLocked =>
+      (_assignedPortId ?? '').trim().isNotEmpty ||
+      (_assignedPortName ?? '').trim().isNotEmpty;
 
   Widget _buildDynamicStatusBadge(String status, StatusColors colors) {
     return Container(
@@ -698,9 +770,9 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
                             vesselName: vesselName,
                             currentStatus: displayStatus,
                             originId: passOriginId,
-                                destinationId: passDestId,
-                                onboardingDuration: passOnboardingDuration,
-                                dockedState: dockedState,
+                            destinationId: passDestId,
+                            onboardingDuration: passOnboardingDuration,
+                            dockedState: dockedState,
                           ),
                         ),
                       );
@@ -747,12 +819,13 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
     String statusLabel,
     StatusColors statusColors,
   ) {
-    if (statusData == null || statusData is! Map)
+    if (statusData == null || statusData is! Map) {
       return _buildInfoRow(
         Icons.help_outline,
         "No recent route data",
         color: textSecondary,
       );
+    }
 
     String status = statusLabel.toLowerCase();
     String originId = statusData['origin']?.toString() ?? '';
@@ -890,7 +963,9 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
           ),
           const SizedBox(height: 8),
           Text(
-            "Try adjusting your search or filter.",
+            _isAssignedPortLocked
+                ? "No vessels are linked to your assigned port."
+                : "Try adjusting your search or filter.",
             style: TextStyle(color: textSecondary, fontSize: 13),
           ),
         ],
