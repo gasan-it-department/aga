@@ -4,13 +4,21 @@ import 'package:gasan_port_tracker/FloatingMessages/SnackbarMessenger.dart';
 import 'package:gasan_port_tracker/Utility/Utility.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../Maritime/MaritimeActivityLogger.dart';
 import 'MaritimeNotificationCenter.dart';
 import 'PortsManagement.dart';
 import 'VesselStatusUpdater.dart';
 
 class MaritimeAdministrator extends StatefulWidget {
-  const MaritimeAdministrator({super.key});
+  const MaritimeAdministrator({
+    super.key,
+    this.onLogout,
+    this.onOpenDeckPlanner,
+  });
+
+  final VoidCallback? onLogout;
+  final VoidCallback? onOpenDeckPlanner;
 
   @override
   State<MaritimeAdministrator> createState() => _MaritimeAdministratorState();
@@ -311,6 +319,37 @@ class _MaritimeAdministratorState extends State<MaritimeAdministrator> {
             fontSize: 18,
           ),
         ),
+        actions: [
+          IconButton(
+            tooltip: "Log out",
+            icon: const Icon(Icons.logout_rounded),
+            onPressed: widget.onLogout == null
+                ? null
+                : () async {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Log out?'),
+                        content: const Text(
+                          'Are you sure you want to log out of the maritime administrator portal?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            child: const Text('Log out'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true && mounted) widget.onLogout!();
+                  },
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1.0),
           child: Container(color: outlineColor, height: 1.0),
@@ -447,6 +486,24 @@ class _MaritimeAdministratorState extends State<MaritimeAdministrator> {
                         ],
                       ),
 
+                      if (widget.onOpenDeckPlanner != null) ...[
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildGridCard(
+                                title: "Vehicle Deck Planner",
+                                subtitle: "Plan Ro-Ro deck space",
+                                icon: Icons.grid_view_rounded,
+                                color: const Color(0xFF0A2E5C),
+                                onTap: widget.onOpenDeckPlanner!,
+                              ),
+                            ),
+                            const Expanded(child: SizedBox()),
+                          ],
+                        ),
+                      ],
+
                       const SizedBox(height: 36),
 
                       Row(
@@ -491,6 +548,14 @@ class _MaritimeAdministratorState extends State<MaritimeAdministrator> {
 
                       _buildLogsSection(),
 
+                      const SizedBox(height: 32),
+                      _buildSectionHeader(
+                        Icons.support_agent_rounded,
+                        "SUPPORT",
+                      ),
+                      const SizedBox(height: 16),
+                      _buildSupportSection(),
+
                       const SizedBox(height: 40),
                     ],
                   ),
@@ -499,6 +564,51 @@ class _MaritimeAdministratorState extends State<MaritimeAdministrator> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSupportSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: outlineColor),
+      ),
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(Icons.email_outlined, color: primaryDark),
+            title: const Text(
+              "Email support",
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: const Text("aga.app.support@gmail.com"),
+            trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+            onTap: () => launchUrl(
+              Uri(
+                scheme: 'mailto',
+                path: 'aga.app.support@gmail.com',
+                queryParameters: {'subject': 'AGA Maritime Support'},
+              ),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+          Divider(height: 1, indent: 72, color: outlineColor),
+          ListTile(
+            leading: const Icon(Icons.facebook, color: Color(0xFF1877F2)),
+            title: const Text(
+              "Facebook page",
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: const Text("AGA Mobile"),
+            trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+            onTap: () => launchUrl(
+              Uri.parse('https://www.facebook.com/agamobilefb'),
+              mode: LaunchMode.externalApplication,
+            ),
+          ),
+        ],
       ),
     );
   }

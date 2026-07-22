@@ -194,8 +194,8 @@ class _AddEditVesselState extends State<AddEditVessel> {
                         ),
                         const Divider(height: 32, thickness: 0.5),
                         _buildInputField(
-                          label: "IMO Number",
-                          hint: "International ID",
+                          label: "IMO Number (Optional)",
+                          hint: "Enter IMO number if available",
                           controller: _imoController,
                           icon: Icons.tag_outlined,
                           enabled: !isEditMode,

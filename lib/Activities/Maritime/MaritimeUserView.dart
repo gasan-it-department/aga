@@ -127,7 +127,7 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
   }
 
   List<Map<String, dynamic>> get _filteredVessels {
-    return _vessels.where((vessel) {
+    final filtered = _vessels.where((vessel) {
       // Search filter
       if (_searchQuery.isNotEmpty) {
         final name = (vessel['vessel_name'] ?? '').toString().toLowerCase();
@@ -163,6 +163,31 @@ class _MaritimeUserViewState extends State<MaritimeUserView> {
       }
       return true;
     }).toList();
+
+    int statusRank(Map<String, dynamic> vessel) {
+      final status = vessel['vessel_status'];
+      if (status is! Map) return 99;
+      final code = status['status']?.toString().toLowerCase() ?? '';
+      final dockedState = status['docked_state']?.toString().toLowerCase();
+      if (code == 'docked' && dockedState == 'preparing') return 0;
+      if (code == 'preparing') return 0;
+      if (code == 'docked' && dockedState == 'tba') return 1;
+      if (code == 'docked' || code == 'at_port' || code == 'arrived') {
+        return 2;
+      }
+      if (code == 'onboarding' || code == 'boarding') return 3;
+      if (code == 'departed' || code == 'in_transit') return 4;
+      return 99;
+    }
+
+    filtered.sort((a, b) {
+      final rank = statusRank(a).compareTo(statusRank(b));
+      if (rank != 0) return rank;
+      return (a['vessel_name']?.toString() ?? '').compareTo(
+        b['vessel_name']?.toString() ?? '',
+      );
+    });
+    return filtered;
   }
 
   String _getPortName(dynamic portId) {

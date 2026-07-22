@@ -2,6 +2,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gasan_port_tracker/Utility/BuildStatus.dart';
 
 class SupabaseUtility {
+  // Maritime features are temporarily disabled across all app modes.
+  static const bool maritimeEnabled = false;
   static const String developerModeKey = 'developer_mode_enabled';
   static const String developerAccessCode = 'GASAN-AGA-2026';
 

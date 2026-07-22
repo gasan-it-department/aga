@@ -13,6 +13,7 @@ import 'package:gasan_port_tracker/Activities/support_tickets.dart';
 import 'package:gasan_port_tracker/Authentication/SupabaseAuthentication.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gasan_port_tracker/Utility/Municipalities.dart';
+import 'package:gasan_port_tracker/Database/SupabaseUtility.dart';
 import 'package:gasan_port_tracker/Activities/Seller/SellerProfile.dart';
 import 'package:gasan_port_tracker/Activities/UserDeliveryAddressList.dart';
 import 'package:gasan_port_tracker/Activities/UserOrders.dart';
@@ -420,7 +421,8 @@ class _MyAccountState extends State<MyAccount> {
                           const SizedBox(height: 24),
                           _buildSectionHeader("ADMINISTRATIVE TOOLS"),
                           _buildSettingsGroup([
-                            if (_userRoles.contains("maritime")) ...[
+                            if (SupabaseUtility.maritimeEnabled &&
+                                _userRoles.contains("maritime")) ...[
                               _buildSettingsTile(
                                 icon: Icons.directions_boat_rounded,
                                 label: "Maritime Management",

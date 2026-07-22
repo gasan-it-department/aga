@@ -11,11 +11,13 @@ import 'package:gasan_port_tracker/Utility/Utility.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:gasan_port_tracker/Maritime/MaritimeDataMapper.dart';
 
 const String _backgroundServiceChannelId =
     'background_service_silent_channel_v2';
 const String _notificationRefreshTokenKey = 'aga_notification_refresh_token';
 const Duration _notificationBackfillWindow = Duration(hours: 1);
+const Duration _maritimeTimerHistoryWindow = Duration(days: 1);
 
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
@@ -48,6 +50,18 @@ void onStart(ServiceInstance service) async {
 
   await localNotifications.initialize(settings: initializationSettings);
 
+  const maritimeTimerChannel = AndroidNotificationChannel(
+    'maritime_timer_alerts',
+    'Maritime Timer Alerts',
+    description: 'Alerts for vessel preparation and onboarding timers.',
+    importance: Importance.max,
+  );
+  await localNotifications
+      .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin
+      >()
+      ?.createNotificationChannel(maritimeTimerChannel);
+
   RealtimeChannel? globalChannel;
   RealtimeChannel? userDataChannel;
   RealtimeChannel? sellerOrdersChannel;
@@ -56,6 +70,94 @@ void onStart(ServiceInstance service) async {
   StreamSubscription<List<ConnectivityResult>>? connectivitySub;
   StreamSubscription<Position>? gpsStream;
   Timer? serviceHealthTimer;
+  Timer? maritimeTimer;
+  final Set<String> sentMaritimeTimerNotifications = <String>{};
+
+  Future<void> checkMaritimeTimers() async {
+    try {
+      if (!SupabaseUtility.maritimeEnabled) return;
+      await prefs.reload();
+      final access = prefs.getStringList('user_access') ?? const <String>[];
+      if (!access.any((value) => value.trim().toLowerCase() == 'maritime')) {
+        return;
+      }
+
+      final response = await supabase
+          .schema(SupabaseUtility().getSchema())
+          .from('vessels')
+          .select('vessel_id, vessel_name, vessel_operations(*)');
+      final vessels = MaritimeDataMapper.normalizeVessels(supabase, response);
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      for (final vessel in vessels) {
+        final status = vessel['vessel_status'];
+        if (status is! Map) continue;
+        final statusCode = status['status']?.toString().toLowerCase() ?? '';
+        final dockedState = status['docked_state']?.toString().toLowerCase();
+        final isPreparing =
+            statusCode == 'docked' && dockedState == 'preparing';
+        final isOnboarding = statusCode == 'onboarding';
+        if (!isPreparing && !isOnboarding) continue;
+
+        final endEpoch = MaritimeDataMapper.epoch(
+          status['estimated_transition_latest'],
+        );
+        if (endEpoch <= 0) continue;
+        final operationId =
+            status['operation_id']?.toString() ??
+            vessel['vessel_id']?.toString() ??
+            '';
+        if (operationId.isEmpty) continue;
+
+        final remaining = endEpoch - now;
+        final phase = isPreparing ? 'preparing' : 'onboarding';
+        // A fresh install has no in-memory de-duplication history. Do not
+        // replay timer events that ended more than one day ago.
+        if (remaining <= 0 &&
+            now - endEpoch > _maritimeTimerHistoryWindow.inMilliseconds) {
+          continue;
+        }
+        String? event;
+        String? body;
+        if (remaining > 0 &&
+            remaining <= const Duration(minutes: 3).inMilliseconds) {
+          event = 'three_minutes';
+          body = isPreparing
+              ? 'Docked preparation has 3 minutes or less remaining.'
+              : 'Onboarding has 3 minutes or less remaining.';
+        } else if (remaining <= 0) {
+          event = 'expired';
+          body = isPreparing
+              ? 'Docked preparation time has ended.'
+              : 'Onboarding time has ended.';
+        }
+        if (event == null || body == null) continue;
+
+        final key = '$operationId:$phase:$event';
+        if (!sentMaritimeTimerNotifications.add(key)) continue;
+        await localNotifications.show(
+          id: key.hashCode,
+          title:
+              '${vessel['vessel_name'] ?? 'Vessel'} timer ${event == 'expired' ? 'ended' : 'reminder'}',
+          body: body,
+          notificationDetails: const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'maritime_timer_alerts',
+              'Maritime Timer Alerts',
+              channelDescription:
+                  'Alerts for vessel preparation and onboarding timers.',
+              importance: Importance.max,
+              priority: Priority.high,
+              icon: '@drawable/aga_gasan_app_logo_rounded',
+            ),
+            iOS: DarwinNotificationDetails(),
+          ),
+        );
+      }
+    } catch (error) {
+      Utility().printLog('Maritime background timer check failed: $error');
+    }
+  }
 
   Future<void> disconnectNotificationChannels() async {
     final channels = <RealtimeChannel?>[
@@ -771,6 +873,13 @@ void onStart(ServiceInstance service) async {
 
   await refreshAllNotificationChannels();
 
+  if (SupabaseUtility.maritimeEnabled) {
+    await checkMaritimeTimers();
+    maritimeTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      checkMaritimeTimers();
+    });
+  }
+
   final recoveredVehicleId = prefs.getString('tracking_vehicle_id');
   if (recoveredVehicleId != null && recoveredVehicleId.isNotEmpty) {
     startLocationTracking(
@@ -833,12 +942,14 @@ void onStart(ServiceInstance service) async {
     await disconnectNotificationChannels();
     await prefs.remove('user_id');
     await prefs.remove('seller_id');
+    await prefs.remove('user_access');
     await secureStorage.delete(key: _notificationRefreshTokenKey);
     Utility().printLog('Notification background user context cleared.');
   });
 
   service.on('stopService').listen((event) {
     serviceHealthTimer?.cancel();
+    maritimeTimer?.cancel();
     connectivitySub?.cancel();
     gpsStream?.cancel();
     disconnectNotificationChannels();
@@ -1166,7 +1277,9 @@ class NotificationBackgroundService {
     await _service.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: onStart,
-        autoStart: true,
+        // Start explicitly after configuration to avoid Android creating
+        // competing foreground-service engines during app startup.
+        autoStart: false,
         autoStartOnBoot: true,
         isForegroundMode: true,
         notificationChannelId: _backgroundServiceChannelId,

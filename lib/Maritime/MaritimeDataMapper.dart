@@ -42,7 +42,15 @@ class MaritimeDataMapper {
     final vessel = Map<String, dynamic>.from(source);
     final operation = activeOperation(vessel['vessel_operations']);
     if (operation == null) {
-      vessel['vessel_status'] = null;
+      vessel['vessel_status'] = {
+        'status': 'docked',
+        'docked_state': 'docked',
+        'operation_id': null,
+        'origin': null,
+        'destination': null,
+        'estimated_transition_earliest': 0,
+        'estimated_transition_latest': 0,
+      };
       vessel['vessel_current_port'] = null;
       return vessel;
     }

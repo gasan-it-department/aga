@@ -38,6 +38,7 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   String? _selectedPortId;
   String? _assignedPortId;
   String? _assignedPortName;
+  bool _showAllPorts = false;
 
   Timer? _debounce;
   Timer? _countdownTimer;
@@ -48,7 +49,9 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
     super.initState();
     _initializeData();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted && _vessels.isNotEmpty) setState(() {});
+      if (mounted && _vessels.isNotEmpty) {
+        setState(() {});
+      }
     });
   }
 
@@ -93,14 +96,48 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
       if (mounted) {
         setState(() {
           _portsList = List<Map<String, dynamic>>.from(response);
-          if (_portsList.length == 1) {
-            _selectedPortId = _portsList.first['port_id']?.toString();
-            _assignedPortId = _selectedPortId;
-            _assignedPortName = _portsList.first['port_name']?.toString();
+          _portsMap
+            ..clear()
+            ..addEntries(
+              _portsList.map(
+                (port) =>
+                    MapEntry(_portKey(port['port_id']), _portDisplayName(port)),
+              ),
+            );
+          final availableIds = _portsList
+              .map((port) => _portKey(port['port_id']))
+              .where((id) => id.isNotEmpty)
+              .toSet();
+
+          // Resolve the assigned port against the complete ports list. Access
+          // data may contain either the port ID or the display name.
+          Map<String, dynamic>? assignedPort;
+          if ((_assignedPortId ?? '').trim().isNotEmpty) {
+            for (final port in _portsList) {
+              if (_portKey(port['port_id']) == _assignedPortId!.trim()) {
+                assignedPort = port;
+                break;
+              }
+            }
           }
-          for (var port in _portsList) {
-            _portsMap[port['port_id'].toString()] = port['port_name']
-                .toString();
+          if (assignedPort == null &&
+              (_assignedPortName ?? '').trim().isNotEmpty) {
+            final assignedName = _normalizePortName(_assignedPortName!);
+            for (final port in _portsList) {
+              if (_normalizePortName(_portDisplayName(port)) == assignedName) {
+                assignedPort = port;
+                break;
+              }
+            }
+          }
+          if (assignedPort != null) {
+            _assignedPortId = _portKey(assignedPort['port_id']);
+            _assignedPortName = _portDisplayName(assignedPort);
+            _selectedPortId = _assignedPortId;
+            _showAllPorts = false;
+          } else if (!availableIds.contains(_selectedPortId)) {
+            _selectedPortId = null;
+            _showAllPorts = true;
           }
         });
       }
@@ -110,35 +147,8 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   }
 
   Future<List<dynamic>> _fetchAssignedPorts() async {
-    final assignedPortId = (_assignedPortId ?? '').trim();
-    final assignedPortName = (_assignedPortName ?? '').trim();
-    final allPorts = await supabase
-        .from('ports')
-        .select('port_id, port_name')
-        .order('port_name');
-
-    if (assignedPortId.isNotEmpty) {
-      final byId = allPorts
-          .where((port) => port['port_id']?.toString().trim() == assignedPortId)
-          .toList();
-      if (byId.isNotEmpty) return byId;
-    }
-
-    if (assignedPortName.isNotEmpty) {
-      final normalizedAssigned = _normalizePortName(assignedPortName);
-      final byName = allPorts.where((port) {
-        final normalizedPort = _normalizePortName(
-          port['port_name']?.toString() ?? '',
-        );
-        return normalizedPort == normalizedAssigned ||
-            normalizedPort.contains(normalizedAssigned) ||
-            normalizedAssigned.contains(normalizedPort);
-      }).toList();
-      if (byName.isNotEmpty) return byName;
-    }
-
-    if (assignedPortId.isNotEmpty || assignedPortName.isNotEmpty) return [];
-
+    // Load every port first. The user's access data is only used to choose
+    // the initial filter, not to restrict the available port options.
     return await supabase
         .from('ports')
         .select('port_id, port_name')
@@ -151,6 +161,13 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
         .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
         .trim()
         .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  String _portKey(dynamic value) => value?.toString().trim() ?? '';
+
+  String _portDisplayName(Map<String, dynamic> port) {
+    final name = port['port_name']?.toString().trim() ?? '';
+    return name.isEmpty ? 'Unnamed Port' : name;
   }
 
   Future<void> _fetchShippingLines() async {
@@ -193,9 +210,13 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
         supabase,
         response,
       );
-      final activePortFilter = (_assignedPortId ?? '').trim().isNotEmpty
-          ? _assignedPortId!.trim()
-          : _selectedPortId;
+      final activePortFilter = _showAllPorts
+          ? null
+          : _selectedPortId?.trim().isNotEmpty == true
+          ? _selectedPortId!.trim()
+          : ((_assignedPortId ?? '').trim().isNotEmpty
+                ? _assignedPortId!.trim()
+                : null);
       final filtered = activePortFilter == null
           ? normalized
           : normalized.where((vessel) {
@@ -234,8 +255,10 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
   }
 
   void _onPortFilterChanged(String? newValue) {
-    if ((_assignedPortId ?? '').trim().isNotEmpty) return;
-    setState(() => _selectedPortId = newValue);
+    setState(() {
+      _selectedPortId = newValue;
+      _showAllPorts = newValue == null;
+    });
     _fetchVessels();
   }
 
@@ -556,9 +579,7 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
     );
   }
 
-  bool get _isAssignedPortLocked =>
-      (_assignedPortId ?? '').trim().isNotEmpty ||
-      (_assignedPortName ?? '').trim().isNotEmpty;
+  bool get _isAssignedPortLocked => false;
 
   Widget _buildDynamicStatusBadge(String status, StatusColors colors) {
     return Container(
@@ -645,35 +666,36 @@ class _VesselStatusUpdaterState extends State<VesselStatusUpdater> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            vesselName,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              color: primaryDark,
-                            ),
-                          ),
-                          Text(
-                            lineName,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: textSecondary,
-                            ),
-                          ),
-                        ],
+                    Text(
+                      vesselName,
+                      softWrap: true,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: primaryDark,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    _buildDynamicStatusBadge(displayLabel, statusColors),
+                    const SizedBox(height: 2),
+                    Text(
+                      lineName,
+                      softWrap: true,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: _buildDynamicStatusBadge(
+                        displayLabel,
+                        statusColors,
+                      ),
+                    ),
                   ],
                 ),
 

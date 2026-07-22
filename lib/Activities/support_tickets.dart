@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:gasan_port_tracker/Utility/SupabaseExternalAuthBridge.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 const _supportAccent = Color(0xFF2563EB);
 const _supportBg = Color(0xFFF8FAFC);
@@ -109,6 +110,15 @@ class _SupportTicketsState extends State<SupportTickets> {
     if (changed == true) _load();
   }
 
+  Future<void> _openSupportLink(Uri uri) async {
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication) &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to open support contact.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -149,18 +159,39 @@ class _SupportTicketsState extends State<SupportTickets> {
     }
 
     if (_tickets.isEmpty) {
-      return _StateMessage(
-        icon: Icons.bug_report_outlined,
-        title: 'No reports yet',
-        message: 'Send bugs and errors here so support can track them.',
-        actionLabel: 'Create report',
-        onAction: _openCreate,
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          _ContactSupportCard(
+            onFacebook: () => _openSupportLink(
+              Uri.parse('https://www.facebook.com/agamobilefb'),
+            ),
+            onEmail: () =>
+                _openSupportLink(Uri.parse('mailto:aga.app.support@gmail.com')),
+          ),
+          _StateMessage(
+            icon: Icons.bug_report_outlined,
+            title: 'No reports yet',
+            message: 'Send bugs and errors here so support can track them.',
+            actionLabel: 'Create report',
+            onAction: _openCreate,
+          ),
+        ],
       );
     }
 
     return CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
+        SliverToBoxAdapter(
+          child: _ContactSupportCard(
+            onFacebook: () => _openSupportLink(
+              Uri.parse('https://www.facebook.com/agamobilefb'),
+            ),
+            onEmail: () =>
+                _openSupportLink(Uri.parse('mailto:aga.app.support@gmail.com')),
+          ),
+        ),
         SliverToBoxAdapter(child: _TicketsHeader(count: _tickets.length)),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
@@ -980,6 +1011,78 @@ class _StateMessage extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ContactSupportCard extends StatelessWidget {
+  final VoidCallback onFacebook;
+  final VoidCallback onEmail;
+
+  const _ContactSupportCard({required this.onFacebook, required this.onEmail});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _supportBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Need help?',
+            style: TextStyle(
+              color: _supportText,
+              fontSize: 17,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Contact the AGA support team directly.',
+            style: TextStyle(color: _supportMuted),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onFacebook,
+                  icon: const Icon(Icons.facebook_rounded),
+                  label: const Text('Facebook'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF1877F2),
+                    side: const BorderSide(color: Color(0xFF1877F2)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onEmail,
+                  icon: const Icon(Icons.email_outlined),
+                  label: const Text('Email'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _supportAccent,
+                    side: const BorderSide(color: _supportAccent),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

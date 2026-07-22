@@ -345,6 +345,40 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
     }
   }
 
+  Future<void> _confirmStatusChange(String newValue) async {
+    if (_statusCode(newValue) == _statusCode(_selectedStatus)) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Change vessel status?'),
+        content: Text(
+          'Change the status from ${_selectedStatus.toUpperCase()} '
+          'to ${newValue.toUpperCase()}?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Change Status'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) return;
+    setState(() {
+      _selectedStatus = newValue;
+      if (_statusCode(newValue) != 'docked') {
+        _dockedState = 'docked';
+      }
+      _resetTimerForStatus();
+    });
+  }
+
   Future<void> _pickProofImage() async {
     if (_isUploading) return;
 
@@ -394,7 +428,8 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
       _validateTimerInput();
     }
 
-    final bool requiresProofImage = statusLower != 'docked';
+    final bool requiresProofImage =
+        statusLower != 'docked' && statusLower != 'no_schedule';
 
     if (requiresProofImage && _finalCapturedImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1129,13 +1164,7 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
                   ? null
                   : (String? newValue) {
                       if (newValue != null) {
-                        setState(() {
-                          _selectedStatus = newValue;
-                          if (_statusCode(newValue) != 'docked') {
-                            _dockedState = 'docked';
-                          }
-                          _resetTimerForStatus();
-                        });
+                        _confirmStatusChange(newValue);
                       }
                     },
             ),
@@ -1182,7 +1211,9 @@ class _UpdateVesselStatusState extends State<UpdateVesselStatus> {
   }
 
   Widget _buildPhotoProofCard() {
-    final isOptional = _statusCode(_selectedStatus) == 'docked';
+    final currentStatus = _statusCode(_selectedStatus);
+    final isOptional =
+        currentStatus == 'docked' || currentStatus == 'no_schedule';
 
     return _buildSectionCard(
       title: isOptional ? "Photo Proof Optional" : "Photo Proof",

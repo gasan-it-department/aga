@@ -30,7 +30,8 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
     super.initState();
     if (!kIsWeb) {
       SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
       ]);
     }
     _initCamera();
@@ -39,9 +40,7 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
   @override
   void dispose() {
     if (!kIsWeb) {
-      SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-      ]);
+      SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     }
     super.dispose();
   }
@@ -51,6 +50,8 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
     setState(() {
       _isCameraInitialized = false;
     });
+
+    await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
     if (_cameraController != null) {
       await _cameraController!.dispose();
@@ -81,7 +82,10 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
         if (!status.isGranted) {
           if (mounted) {
             setState(() => _hasCameraPermission = false);
-            _showClassicDialog("Permission Required", "Please allow camera access.");
+            _showClassicDialog(
+              "Permission Required",
+              "Please allow camera access.",
+            );
           }
           return;
         }
@@ -96,22 +100,24 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
         try {
           // Prefer the back camera
           selectedCamera = _cameras!.firstWhere(
-                (c) => c.lensDirection == CameraLensDirection.back && !c.name.toLowerCase().contains("obs"),
+            (c) =>
+                c.lensDirection == CameraLensDirection.back &&
+                !c.name.toLowerCase().contains("obs"),
           );
         } catch (_) {
           selectedCamera = _cameras![0];
         }
 
         _cameraController = CameraController(
-            selectedCamera,
-            ResolutionPreset.high,
-            enableAudio: false,
-            imageFormatGroup: ImageFormatGroup.jpeg
+          selectedCamera,
+          ResolutionPreset.high,
+          enableAudio: false,
+          imageFormatGroup: ImageFormatGroup.jpeg,
         );
 
         await _cameraController!.initialize();
         await _cameraController!.lockCaptureOrientation(
-          DeviceOrientation.portraitUp,
+          DeviceOrientation.landscapeLeft,
         );
 
         if (mounted) setState(() => _isCameraInitialized = true);
@@ -135,11 +141,14 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
 
     try {
       final XFile image = await _cameraController!.takePicture();
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
       if (mounted) {
         setState(() {
-        _capturedImage = image;
-        _isCapturing = false;
-      });
+          _capturedImage = image;
+          _isCapturing = false;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -169,7 +178,9 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
                     ? _buildImagePreview()
                     : _isCameraInitialized
                     ? _buildCameraFeed()
-                    : const Center(child: CircularProgressIndicator(color: Colors.white)),
+                    : const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      ),
               ),
 
               // --- 2. TOP BAR (Back Button & Title) ---
@@ -185,20 +196,34 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
                       colors: [Colors.black87, Colors.transparent],
                     ),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
                       Container(
-                        decoration: BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                        decoration: BoxDecoration(
+                          color: Colors.black45,
+                          shape: BoxShape.circle,
+                        ),
                         child: IconButton(
-                          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                          icon: const Icon(
+                            Icons.arrow_back_rounded,
+                            color: Colors.white,
+                          ),
                           onPressed: () => _safeExit(null),
                         ),
                       ),
                       const Spacer(),
                       const Text(
-                          "Capture Proof",
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.2)
+                        "Capture Proof",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1.2,
+                        ),
                       ),
                       const Spacer(),
                       const SizedBox(width: 48), // Balance the back button
@@ -220,7 +245,12 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
                       colors: [Colors.black87, Colors.transparent],
                     ),
                   ),
-                  padding: const EdgeInsets.only(bottom: 24, top: 40, left: 32, right: 32),
+                  padding: const EdgeInsets.only(
+                    bottom: 24,
+                    top: 40,
+                    left: 32,
+                    right: 32,
+                  ),
                   child: _capturedImage != null
                       ? _buildPostCaptureControls()
                       : _buildLiveCameraControls(),
@@ -234,8 +264,16 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
   }
 
   Widget _buildCameraFeed() {
-    if (!_hasCameraPermission) return const Center(child: Text("Camera Denied", style: TextStyle(color: Colors.white)));
-    if (_cameraController == null) return const Center(child: CircularProgressIndicator(color: Colors.white));
+    if (!_hasCameraPermission) {
+      return const Center(
+        child: Text("Camera Denied", style: TextStyle(color: Colors.white)),
+      );
+    }
+    if (_cameraController == null) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
+    }
 
     return Center(child: CameraPreview(_cameraController!));
   }
@@ -263,10 +301,23 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
               child: Container(
                 height: 56,
                 width: 56,
-                decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                ),
                 child: _isCapturing
-                    ? const Padding(padding: EdgeInsets.all(14), child: CircularProgressIndicator(color: Colors.black, strokeWidth: 3))
-                    : const Icon(Icons.camera_alt_rounded, color: Color(0xFF0A2E5C), size: 28),
+                    ? const Padding(
+                        padding: EdgeInsets.all(14),
+                        child: CircularProgressIndicator(
+                          color: Colors.black,
+                          strokeWidth: 3,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Color(0xFF0A2E5C),
+                        size: 28,
+                      ),
               ),
             ),
           ),
@@ -285,11 +336,20 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
             style: TextButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
               backgroundColor: Colors.white.withValues(alpha: 0.2),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
             ),
             onPressed: () => setState(() => _capturedImage = null),
             icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-            label: const Text("Retake", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            label: const Text(
+              "Retake",
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ),
         const SizedBox(width: 16),
@@ -300,12 +360,21 @@ class _ImageCaptureScreenState extends State<ImageCaptureScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: accentBlue,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               elevation: 0,
             ),
             onPressed: () => _safeExit(_capturedImage),
             icon: const Icon(Icons.check_rounded, color: Colors.white),
-            label: const Text("Use Photo", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+            label: const Text(
+              "Use Photo",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
+            ),
           ),
         ),
       ],

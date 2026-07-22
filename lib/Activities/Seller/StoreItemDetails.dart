@@ -13,6 +13,7 @@ import 'package:gasan_port_tracker/Dialogs/Bottomsheets/DeliveryRatesViewer.dart
 import 'package:gasan_port_tracker/Activities/MyCart.dart';
 import 'package:gasan_port_tracker/Activities/ViewShop.dart';
 import 'package:gasan_port_tracker/Activities/Seller/Checkout.dart';
+import 'package:share_plus/share_plus.dart';
 
 class _DragScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -97,6 +98,22 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
 
   bool _isCartBusy = false;
   String? _cartRowId;
+
+  Future<void> _shareItem() async {
+    final itemId = widget.item['item_id']?.toString().trim() ?? '';
+    if (itemId.isEmpty) return;
+    final itemName = widget.item['item_name']?.toString().trim();
+    final link = Uri.parse(
+      'https://aga-app.gasan.workers.dev/market/item/$itemId',
+    );
+    await SharePlus.instance.share(
+      ShareParams(
+        text:
+            'Check out ${itemName?.isNotEmpty == true ? itemName : 'this item'} on AGA:\n$link',
+        title: itemName ?? 'AGA Market item',
+      ),
+    );
+  }
 
   Future<void> _fetchCartCount() async {
     try {
@@ -246,6 +263,26 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildShareAction({
+    Color iconColor = Colors.white,
+    bool dark = false,
+  }) {
+    return IconButton(
+      tooltip: 'Share item',
+      onPressed: _shareItem,
+      icon: dark
+          ? Icon(Icons.share_rounded, color: iconColor, size: 22)
+          : CircleAvatar(
+              backgroundColor: Colors.black.withValues(alpha: 0.3),
+              child: const Icon(
+                Icons.share_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
     );
   }
 
@@ -490,7 +527,10 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
                   fontSize: 16,
                 ),
               ),
-              actions: [_buildCartAction(iconColor: primaryDark, dark: true)],
+              actions: [
+                _buildShareAction(iconColor: primaryDark, dark: true),
+                _buildCartAction(iconColor: primaryDark, dark: true),
+              ],
               bottom: PreferredSize(
                 preferredSize: const Size.fromHeight(1),
                 child: Container(color: cardBorder, height: 1),
@@ -549,7 +589,7 @@ class _StoreItemDetailsState extends State<StoreItemDetails> {
             ),
             onPressed: () => Navigator.pop(context),
           ),
-          actions: [_buildCartAction()],
+          actions: [_buildShareAction(), _buildCartAction()],
           flexibleSpace: FlexibleSpaceBar(
             background: _buildImageCarousel(images),
           ),

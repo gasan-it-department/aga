@@ -42,7 +42,7 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
         supabase
             .from('shipping_lines')
             .select(
-              '*, vessels(vessel_id), shipping_line_route_profiles(*, shipping_line_fares(*))',
+              '*, vessels(vessel_id, vessel_name, vessel_operations(*)), shipping_line_route_profiles(*, shipping_line_fares(*))',
             )
             .order('shipping_line_name'),
       ]);
@@ -68,10 +68,36 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
           _ports = ports;
           _passengerLevelsByPort = passengerLevels;
           _shippingLines = List<Map<String, dynamic>>.from(responses[1] as List)
-              .map(
-                (line) =>
-                    MaritimeDataMapper.normalizeShippingLine(line, portNames),
-              )
+              .map((line) {
+                final normalizedLine = MaritimeDataMapper.normalizeShippingLine(
+                  line,
+                  portNames,
+                );
+                final normalizedVessels = MaritimeDataMapper.normalizeVessels(
+                  supabase,
+                  line['vessels'] ?? const [],
+                );
+                final counts = <String, int>{
+                  'tba': 0,
+                  'preparing': 0,
+                  'onboarding': 0,
+                };
+                for (final vessel in normalizedVessels) {
+                  final status = vessel['vessel_status'];
+                  if (status is! Map) continue;
+                  final code = status['status']?.toString().toLowerCase();
+                  final dockedState = status['docked_state']
+                      ?.toString()
+                      .toLowerCase();
+                  if (code == 'docked' && counts.containsKey(dockedState)) {
+                    counts[dockedState!] = counts[dockedState]! + 1;
+                  } else if (code == 'onboarding') {
+                    counts['onboarding'] = counts['onboarding']! + 1;
+                  }
+                }
+                normalizedLine['status_counts'] = counts;
+                return normalizedLine;
+              })
               .toList();
           _isLoading = false;
         });
@@ -291,10 +317,7 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                       padding: const EdgeInsets.fromLTRB(20, 20, 16, 18),
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          colors: [
-                            primaryDark,
-                            const Color(0xFF155EAC),
-                          ],
+                          colors: [primaryDark, const Color(0xFF155EAC)],
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
@@ -497,6 +520,14 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
 
   Widget _buildShippingLineCard(Map<String, dynamic> line) {
     final int fleetSize = (line['vessels'] as List?)?.length ?? 0;
+    final counts = Map<String, dynamic>.from(
+      line['status_counts'] as Map? ?? const {},
+    );
+    final statusBadges = <String, String>{
+      'tba': 'TBA ${counts['tba'] ?? 0}',
+      'preparing': 'Preparing ${counts['preparing'] ?? 0}',
+      'onboarding': 'Onboarding ${counts['onboarding'] ?? 0}',
+    };
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -572,6 +603,21 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
                           ),
                         ],
                       ),
+                      if (statusBadges.values.any(
+                        (value) => !value.endsWith(' 0'),
+                      )) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: statusBadges.entries
+                              .where((entry) => !entry.value.endsWith(' 0'))
+                              .map(
+                                (entry) => _statusBadge(entry.value, entry.key),
+                              )
+                              .toList(),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -579,6 +625,29 @@ class _ViewShippingLinesDetailsState extends State<ViewShippingLinesDetails> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _statusBadge(String label, String type) {
+    final color = switch (type) {
+      'tba' => const Color(0xFF64748B),
+      'preparing' => const Color(0xFFD97706),
+      _ => const Color(0xFF2563EB),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );

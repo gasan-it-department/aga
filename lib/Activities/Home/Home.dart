@@ -814,7 +814,7 @@ class _HomeState extends State<Home> {
         onTap: () => MainNavigation.selectedTab.value = 1,
       ),
       _QuickServiceItem(
-        title: 'Emergency',
+        title: 'Hotlines',
         icon: Icons.emergency_share_rounded,
         bgColor: const Color(0xFFFEF2F2),
         iconColor: const Color(0xFFDC2626),
@@ -879,7 +879,7 @@ class _HomeState extends State<Home> {
             );
           },
         ),
-      // Show Maritime (active) in debug/developer mode, otherwise Transportation (coming soon)
+      // Maritime remains available to users; only its admin tools are disabled.
       if (kDebugMode || SupabaseUtility.isDeveloperMode)
         _QuickServiceItem(
           title: 'Maritime',

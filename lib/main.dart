@@ -143,7 +143,7 @@ class _SplashScreenState extends State<SplashScreen> {
       }
 
       if (status.isDenied || status.isPermanentlyDenied) {
-        Utility().printLog(
+        Utility().printLog( 
           "Notification permission denied by user. Background notifications may be limited.",
         );
       }
